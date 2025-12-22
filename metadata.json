@@ -1,0 +1,5 @@
+{
+  "name": "YouTube Insight Hub",
+  "description": "YouTubeチャンネルの最新動画を自動的にチェックし、Gemini AIを使って内容を要約。Googleドキュメント保存とGoogle Chat通知機能を備えたダッシュボードです。",
+  "requestFramePermissions": []
+}

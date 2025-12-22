@@ -1,0 +1,40 @@
+
+export interface VideoSummary {
+  id: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  summary: string;
+  keyPoints: string[];
+  channelId: string;
+  channelTitle: string;
+  url: string;
+  docUrl?: string; // Google Doc URL after export
+}
+
+export interface TrackedChannel {
+  id: string;
+  name: string;
+  handle: string;
+  lastChecked: string;
+  thumbnailUrl: string;
+}
+
+export interface GoogleConfig {
+  clientId: string;
+  chatWebhookUrl: string;
+  autoExport: boolean;
+  isConnected: boolean;
+}
+
+export interface AutomationConfig {
+  isAutoScanEnabled: boolean;
+  intervalMinutes: number;
+}
+
+export enum StorageKey {
+  CHANNELS = 'yt_insight_channels',
+  SUMMARIES = 'yt_insight_summaries',
+  GOOGLE_CONFIG = 'yt_insight_google_config',
+  AUTO_CONFIG = 'yt_insight_auto_config'
+}
