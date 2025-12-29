@@ -2,20 +2,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GeminiService } from './services/geminiService';
 import { GoogleApiService } from './services/googleApiService';
-import { VideoSummary, TrackedChannel, StorageKey, GoogleConfig } from './types';
+import { ApiService } from './services/apiService';
+import { VideoSummary, TrackedChannel, StorageKey, GoogleConfig, VideoSummaryWithContent } from './types';
 import { ChannelItem } from './components/ChannelItem';
-import { SummaryCard } from './components/SummaryCard';
+import { SummaryTable } from './components/SummaryTable';
 
 const App: React.FC = () => {
-  const [channels, setChannels] = useState<TrackedChannel[]>(() => {
-    const saved = localStorage.getItem(StorageKey.CHANNELS);
-    return saved ? JSON.parse(saved) : [];
-  });
-  
-  const [summaries, setSummaries] = useState<VideoSummary[]>(() => {
-    const saved = localStorage.getItem(StorageKey.SUMMARIES);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [channels, setChannels] = useState<TrackedChannel[]>([]);
+  const [summaries, setSummaries] = useState<VideoSummary[]>([]);
 
   const [googleConfig, setGoogleConfig] = useState<GoogleConfig>(() => {
     const saved = localStorage.getItem(StorageKey.GOOGLE_CONFIG);
@@ -35,28 +29,122 @@ const App: React.FC = () => {
 
   const gemini = useRef(new GeminiService());
   const googleApi = useRef<GoogleApiService | null>(null);
+  const api = useRef(new ApiService());
+
+  // 初期データ読み込み
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [channelsData, summariesData] = await Promise.all([
+          api.current.getChannels(),
+          api.current.getSummaries()
+        ]);
+        setChannels(channelsData);
+        setSummaries(summariesData);
+      } catch (error: any) {
+        console.warn('データの読み込みに失敗しました（正常な場合があります）:', error?.message || error);
+        // エラー時はLocalStorageからフォールバック
+        try {
+          const savedChannels = localStorage.getItem(StorageKey.CHANNELS);
+          const savedSummaries = localStorage.getItem(StorageKey.SUMMARIES);
+          if (savedChannels) {
+            try {
+              const parsed = JSON.parse(savedChannels);
+              if (Array.isArray(parsed)) setChannels(parsed);
+            } catch (e) {
+              console.warn('LocalStorageのチャンネルデータのパースに失敗:', e);
+            }
+          }
+          if (savedSummaries) {
+            try {
+              const parsed = JSON.parse(savedSummaries);
+              if (Array.isArray(parsed)) setSummaries(parsed);
+            } catch (e) {
+              console.warn('LocalStorageの要約データのパースに失敗:', e);
+            }
+          }
+        } catch (e) {
+          console.warn('LocalStorageからの読み込みに失敗:', e);
+        }
+        // エラーがあっても空配列で初期化（画面は表示される）
+        setChannels([]);
+        setSummaries([]);
+      }
+    };
+    loadData();
+  }, []);
 
   useEffect(() => {
     if (googleConfig.clientId) {
-      const api = new GoogleApiService(googleConfig.clientId);
-      if (api.handleCallback()) {
+      const googleApiInstance = new GoogleApiService(googleConfig.clientId);
+      if (googleApiInstance.handleCallback()) {
         setGoogleConfig(prev => ({ ...prev, isConnected: true }));
-      } else if (api.hasValidToken()) {
+      } else if (googleApiInstance.hasValidToken()) {
         setGoogleConfig(prev => ({ ...prev, isConnected: true }));
       }
-      googleApi.current = api;
+      googleApi.current = googleApiInstance;
     }
   }, [googleConfig.clientId]);
 
-  useEffect(() => { localStorage.setItem(StorageKey.CHANNELS, JSON.stringify(channels)); }, [channels]);
-  useEffect(() => { localStorage.setItem(StorageKey.SUMMARIES, JSON.stringify(summaries)); }, [summaries]);
-  useEffect(() => { localStorage.setItem(StorageKey.GOOGLE_CONFIG, JSON.stringify(googleConfig)); }, [googleConfig]);
+  // Google設定のみLocalStorageに保存（認証情報のため）
+  useEffect(() => { 
+    localStorage.setItem(StorageKey.GOOGLE_CONFIG, JSON.stringify(googleConfig)); 
+  }, [googleConfig]);
+
+  // Google Chatへの送信関数
+  const sendToGoogleChat = useCallback(async (summary: VideoSummary, docUrl: string) => {
+    if (!googleConfig.chatWebhookUrl || !googleConfig.autoExport) {
+      return; // Webhook URLが設定されていない、または自動送信がOFFの場合は送信しない
+    }
+
+    try {
+      let message = `🔔 *新しい動画の要約*\n\n` +
+        `*タイトル:* ${summary.title}\n` +
+        `*チャンネル:* ${summary.channelTitle}\n` +
+        `*公開日:* ${summary.publishedAt}\n\n`;
+
+      // 要約内容を追加
+      if (summary.summary) {
+        message += `*要約:*\n${summary.summary}\n\n`;
+      }
+
+      // 重要なポイントを追加
+      if (summary.keyPoints && summary.keyPoints.length > 0) {
+        message += `*重要なポイント:*\n`;
+        summary.keyPoints.forEach((point, index) => {
+          message += `${index + 1}. ${point}\n`;
+        });
+        message += `\n`;
+      }
+
+      message += `📄 *Googleドキュメント:* ${docUrl}\n` +
+        `📺 *動画URL:* ${summary.url}`;
+
+      const response = await fetch(googleConfig.chatWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Chat送信に失敗しました: ${response.statusText}`);
+      }
+
+      console.log('Google Chatに通知を送信しました:', summary.title);
+    } catch (err: any) {
+      console.error('Google Chat送信エラー:', err);
+      // エラーはログに記録するが、ユーザーには表示しない（要約の保存は成功しているため）
+    }
+  }, [googleConfig.chatWebhookUrl, googleConfig.autoExport]);
 
   const handleExportToGoogle = async (summary: VideoSummary) => {
     if (!googleApi.current) return;
     try {
       const docUrl = await googleApi.current.createSummaryDoc(summary);
-      setSummaries(prev => prev.map(s => s.id === summary.id ? { ...s, docUrl } : s));
+      // データベースを更新
+      const updatedSummary = { ...summary, docUrl };
+      await api.current.saveSummary(updatedSummary);
+      setSummaries(prev => prev.map(s => s.id === summary.id ? updatedSummary : s));
     } catch (err: any) {
       setError("Googleへの保存に失敗しました。再連携してください。");
     }
@@ -76,26 +164,71 @@ const App: React.FC = () => {
   };
 
   const scanAllChannels = useCallback(async () => {
-    if (channels.length === 0 || isScanning) return;
+    if (channels.length === 0 || isScanning || !googleApi.current) {
+      if (!googleApi.current) {
+        setError("Google認証が必要です。先にGoogleと連携してください。");
+      }
+      return;
+    }
     setIsScanning(true);
     setError(null);
     try {
       for (const channel of channels) {
-        const foundSummaries = await gemini.current.scanChannel(channel);
+        const foundSummaries: VideoSummaryWithContent[] = await gemini.current.scanChannel(channel);
         for (const s of foundSummaries) {
-          setSummaries(prev => {
-            const exists = prev.some(existing => existing.title === s.title);
-            if (exists) return prev;
-            return [s, ...prev].slice(0, 50);
+          // デバッグ: Gemini APIが返したURLを確認
+          console.log('📹 Gemini APIが返した動画:', {
+            title: s.title,
+            url: s.url,
           });
+          
+          // 重複チェック（既に取得済みの動画はスキップ）
+          const exists = await api.current.checkVideoExists(s.url);
+          if (exists) {
+            console.log(`⏭️ スキップ: 既に取得済みの動画 "${s.title}" (URL: ${s.url})`);
+            continue;
+          }
+
+          try {
+            // 1. まずGoogleドキュメントを作成（要約内容を保存）
+            const docUrl = await googleApi.current.createSummaryDoc(s);
+            
+            // 2. メタデータと要約内容をデータベースに保存
+            const summaryMetadata: VideoSummary = {
+              id: s.id,
+              title: s.title,
+              publishedAt: s.publishedAt,
+              thumbnailUrl: s.thumbnailUrl,
+              channelId: s.channelId,
+              channelTitle: s.channelTitle,
+              url: s.url,
+              docUrl: docUrl,
+              summary: s.summary, // 要約内容を保存
+              keyPoints: s.keyPoints, // 重要なポイントを保存
+            };
+            
+            const savedSummary = await api.current.saveSummary(summaryMetadata);
+            
+            // 3. Google Chatに通知（自動送信がONの場合）
+            if (googleConfig.autoExport && googleConfig.chatWebhookUrl) {
+              await sendToGoogleChat(savedSummary, docUrl);
+            }
+            
+            // 4. ローカル状態を更新
+            setSummaries(prev => [savedSummary, ...prev].slice(0, 50));
+          } catch (err: any) {
+            console.error('要約の保存に失敗:', err);
+            setError(`要約の保存に失敗しました: ${err.message}`);
+          }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      console.error('スキャンエラー:', err);
       setError("スキャン中にエラーが発生しました。");
     } finally {
       setIsScanning(false);
     }
-  }, [channels, isScanning]);
+  }, [channels, isScanning, googleConfig.autoExport, googleConfig.chatWebhookUrl, sendToGoogleChat]);
 
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,15 +236,25 @@ const App: React.FC = () => {
     setIsAdding(true);
     setError(null);
     try {
+      // チャンネル情報の取得（Gemini APIを使用 - 5-30秒かかる場合があります）
+      console.log('🔍 チャンネル情報を取得中...（5-30秒かかる場合があります）');
       const channel = await gemini.current.findChannel(searchQuery);
       if (channel) {
         if (!channels.some(c => c.handle === channel.handle)) {
-          setChannels(prev => [...prev, channel]);
+          // データベースに保存
+          const savedChannel = await api.current.addChannel(channel);
+          setChannels(prev => [...prev, savedChannel]);
           setSearchQuery('');
+        } else {
+          setError('このチャンネルは既に追加されています。');
         }
-      } else setError('チャンネルが見つかりませんでした。');
-    } catch (err) {
-      setError('追加エラー');
+      } else {
+        setError('チャンネルが見つかりませんでした。');
+      }
+    } catch (err: any) {
+      console.error('チャンネル追加エラー:', err);
+      // エラーメッセージをそのまま表示（GeminiServiceから詳細なメッセージが返される）
+      setError(err.message || 'チャンネルの追加に失敗しました。');
     } finally {
       setIsAdding(false);
     }
@@ -163,7 +306,20 @@ const App: React.FC = () => {
           {channels.length === 0 ? (
             <p className="text-[10px] text-slate-600 italic px-1">追加されたチャンネルはありません</p>
           ) : (
-            channels.map(c => <ChannelItem key={c.id} channel={c} onRemove={(id) => setChannels(prev => prev.filter(ch => ch.id !== id))} />)
+            channels.map(c => (
+              <ChannelItem 
+                key={c.id} 
+                channel={c} 
+                onRemove={async (id) => {
+                  try {
+                    await api.current.deleteChannel(id);
+                    setChannels(prev => prev.filter(ch => ch.id !== id));
+                  } catch (err: any) {
+                    setError('チャンネルの削除に失敗しました。');
+                  }
+                }} 
+              />
+            ))
           )}
         </div>
 
@@ -192,6 +348,34 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        <div className="mb-6 p-4 bg-slate-800/40 rounded-2xl border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Google Chat通知</h2>
+            <button onClick={() => setShowHelp('webhook')} className="text-indigo-400 hover:text-indigo-300 text-[10px] font-bold underline underline-offset-4">設定方法</button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] text-slate-500 font-bold block mb-1">Webhook URL</label>
+              <input 
+                type="text" 
+                placeholder="https://chat.googleapis.com/v1/spaces/..." 
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500" 
+                value={googleConfig.chatWebhookUrl} 
+                onChange={e => setGoogleConfig(prev => ({ ...prev, chatWebhookUrl: e.target.value }))} 
+              />
+            </div>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={googleConfig.autoExport}
+                onChange={e => setGoogleConfig(prev => ({ ...prev, autoExport: e.target.checked }))}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="text-xs text-slate-300">新しい要約を自動的にGoogle Chatに通知</span>
+            </label>
+          </div>
+        </div>
+
         <div className="mt-auto pt-4 border-t border-slate-800">
           <button onClick={scanAllChannels} disabled={isScanning || channels.length === 0} className="w-full py-3 rounded-xl font-bold text-sm bg-white text-slate-900 active:scale-95 transition-all">
             {isScanning ? "スキャン中..." : "最新をチェック"}
@@ -206,26 +390,7 @@ const App: React.FC = () => {
           <p className="text-slate-400 text-sm">AIが要点を整理してレポートします。</p>
         </header>
 
-        {summaries.length === 0 ? (
-          <div className="py-32 text-center text-slate-600 border-2 border-dashed border-slate-800 rounded-3xl bg-slate-900/20">
-            チャンネルを追加してスキャンを開始してください。
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-            {summaries.map((summary) => (
-              <div key={summary.id} className="relative group">
-                <SummaryCard summary={summary} />
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {summary.docUrl ? (
-                    <a href={summary.docUrl} target="_blank" rel="noopener noreferrer" className="bg-green-600 text-white p-2 rounded-lg text-[10px] font-bold">DOC</a>
-                  ) : googleConfig.isConnected && (
-                    <button onClick={() => handleExportToGoogle(summary)} className="bg-indigo-600 text-white p-2 rounded-lg text-[10px] font-bold shadow-xl">Doc保存</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <SummaryTable summaries={summaries} />
       </main>
 
       {showHelp && (
@@ -234,11 +399,12 @@ const App: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-bold text-red-400 flex items-center">
                 <svg className="w-8 h-8 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                403エラー解決 & アカウント診断
+                {showHelp === 'clientId' ? '403エラー解決 & アカウント診断' : 'Google Chat Webhook設定方法'}
               </h3>
               <button onClick={() => setShowHelp(null)} className="text-slate-500 hover:text-white"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             
+            {showHelp === 'clientId' ? (
             <div className="space-y-8">
               <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/30">
                 <h4 className="text-white font-bold mb-3 flex items-center uppercase tracking-widest text-xs">
@@ -279,6 +445,60 @@ const App: React.FC = () => {
                 <button onClick={() => setShowHelp(null)} className="px-12 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all shadow-xl">再試行する</button>
               </div>
             </div>
+            ) : (
+            <div className="space-y-8">
+              <div className="bg-indigo-500/10 p-6 rounded-2xl border border-indigo-500/30">
+                <h4 className="text-white font-bold mb-3 flex items-center uppercase tracking-widest text-xs">
+                  <span className="bg-indigo-600 text-white px-2 py-0.5 rounded mr-2">手順</span>
+                  Google Chat Webhook URLの取得方法
+                </h4>
+                <div className="space-y-4 text-xs text-slate-300">
+                  <div>
+                    <p className="font-bold text-white mb-2">1. Google Chatスペースを開く</p>
+                    <p>通知を受け取りたいGoogle Chatスペースを開きます。</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white mb-2">2. アプリと統合を設定</p>
+                    <p>スペース名の横にある「設定」→「アプリと統合」を開きます。</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white mb-2">3. Incoming Webhookを追加</p>
+                    <p>「アプリを追加」→「Incoming Webhook」を検索して追加します。</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white mb-2">4. Webhook URLをコピー</p>
+                    <p>作成されたWebhookのURLをコピーして、上記の「Webhook URL」フィールドに貼り付けます。</p>
+                    <p className="text-slate-400 mt-2">URLの形式: <code className="bg-slate-900 px-2 py-1 rounded">https://chat.googleapis.com/v1/spaces/...</code></p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-white mb-2">5. 自動通知を有効化</p>
+                    <p>「新しい要約を自動的にGoogle Chatに通知」にチェックを入れると、新しい要約が生成されたときに自動的に通知が送信されます。</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-green-500/10 p-6 rounded-2xl border border-green-500/30">
+                <h4 className="text-white font-bold mb-3 flex items-center uppercase tracking-widest text-xs">
+                  <span className="bg-green-600 text-white px-2 py-0.5 rounded mr-2">確認</span>
+                  通知内容
+                </h4>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  通知には以下の情報が含まれます：
+                </p>
+                <ul className="text-xs text-slate-300 mt-2 space-y-1 list-disc list-inside">
+                  <li>動画のタイトル</li>
+                  <li>チャンネル名</li>
+                  <li>公開日</li>
+                  <li>Googleドキュメントへのリンク</li>
+                  <li>動画URL</li>
+                </ul>
+              </div>
+
+              <div className="text-center pt-4">
+                <button onClick={() => setShowHelp(null)} className="px-12 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all shadow-xl">閉じる</button>
+              </div>
+            </div>
+            )}
           </div>
         </div>
       )}

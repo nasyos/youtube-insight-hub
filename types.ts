@@ -1,5 +1,23 @@
 
+// メタデータと要約内容（要約内容はGoogleドキュメントにも保存）
 export interface VideoSummary {
+  id: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  channelId: string;
+  channelTitle: string;
+  url: string;
+  docUrl: string; // Google Doc URL（必須）
+  docId?: string; // Google Doc ID（オプション）
+  summary?: string; // 要約内容（オプショナル）
+  keyPoints?: string[]; // 重要なポイント（オプショナル）
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Gemini APIから取得する際の一時的な型（要約内容を含む）
+export interface VideoSummaryWithContent {
   id: string;
   title: string;
   publishedAt: string;
@@ -9,7 +27,6 @@ export interface VideoSummary {
   channelId: string;
   channelTitle: string;
   url: string;
-  docUrl?: string; // Google Doc URL after export
 }
 
 export interface TrackedChannel {

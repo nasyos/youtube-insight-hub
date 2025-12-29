@@ -1,5 +1,5 @@
 
-import { VideoSummary } from "../types";
+import { VideoSummary, VideoSummaryWithContent } from "../types";
 
 export class GoogleApiService {
   private accessToken: string | null = null;
@@ -113,9 +113,13 @@ export class GoogleApiService {
     return folder.id;
   }
 
-  async createSummaryDoc(summary: VideoSummary): Promise<string> {
+  async createSummaryDoc(summary: VideoSummary | VideoSummaryWithContent): Promise<string> {
+    if (!this.accessToken) throw new Error("AccessToken missing");
+    
     const folderId = await this.getOrCreateFolder();
-    const response = await fetch('https://www.googleapis.com/drive/v3/files', {
+    
+    // ドキュメントを作成
+    const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -124,8 +128,98 @@ export class GoogleApiService {
         parents: [folderId] 
       }),
     });
-    const file = await response.json();
+    const file = await createResponse.json();
     if (file.error) throw new Error(file.error.message);
-    return `https://docs.google.com/document/d/${file.id}/edit`;
+    const documentId = file.id;
+
+    // 少し待ってからドキュメントの内容を書き込む（ドキュメントの初期化を待つ）
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // ドキュメントの内容を書き込む
+    const content = this.formatSummaryContent(summary);
+    try {
+      const updateResponse = await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${this.accessToken}`, 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              insertText: {
+                location: { index: 1 },
+                text: content
+              }
+            }
+          ]
+        })
+      });
+
+      if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        console.error("Document update error:", error);
+        // ドキュメントは作成されているので、URLは返す（ユーザーが手動で編集可能）
+      }
+    } catch (error) {
+      console.error("Failed to write content to document:", error);
+      // ドキュメントは作成されているので、URLは返す
+    }
+
+    return `https://docs.google.com/document/d/${documentId}/edit`;
+  }
+
+  private formatSummaryContent(summary: VideoSummary | VideoSummaryWithContent): string {
+    let content = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    content += `📺 動画情報\n`;
+    content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    content += `タイトル: ${summary.title}\n\n`;
+    content += `チャンネル: ${summary.channelTitle}\n`;
+    content += `公開日: ${summary.publishedAt}\n`;
+    content += `動画URL: ${summary.url}\n\n`;
+    
+    // VideoSummaryWithContentの場合はsummaryとkeyPointsを使用
+    if ('summary' in summary && summary.summary) {
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      content += `📝 詳細要約\n`;
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      content += `${summary.summary}\n\n`;
+      
+      if ('keyPoints' in summary && summary.keyPoints && summary.keyPoints.length > 0) {
+        content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        content += `🔑 重要なポイント\n`;
+        content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        summary.keyPoints.forEach((point, index) => {
+          content += `${index + 1}. ${point}\n\n`;
+        });
+      }
+    } else if ('summary' in summary && summary.summary) {
+      // VideoSummary型でもsummaryがある場合
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      content += `📝 詳細要約\n`;
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      content += `${summary.summary}\n\n`;
+      
+      if (summary.keyPoints && summary.keyPoints.length > 0) {
+        content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        content += `🔑 重要なポイント\n`;
+        content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        summary.keyPoints.forEach((point, index) => {
+          content += `${index + 1}. ${point}\n\n`;
+        });
+      }
+    } else {
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      content += `📝 詳細要約\n`;
+      content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      content += `（要約内容は準備中です）\n`;
+    }
+    
+    content += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    content += `この要約は、YouTube動画を見なくても内容を完全に理解できるように作成されています。\n`;
+    content += `動画内で言及されたすべての重要な情報を含めています。\n`;
+    content += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    
+    return content;
   }
 }
