@@ -64,6 +64,9 @@ export class GeminiService {
       【重要】この要約は、動画を見なくても内容を完全に理解できるレベルの詳細さが必要です。
 
       1. 動画のタイトル
+         - YouTubeに表示されているタイトルをそのまま、一字一句正確に取得してください
+         - タイトルを加工したり、要約したり、省略したりしないでください
+         - タイトルは完全一致で取得してください（例: 「【銘柄勉強会】PER8倍の成長企業!? 今後の成長戦略についてCFOに直接聞いてみた! (イー・ギャランティ)」をそのまま取得）
       2. 公開日（現在は2025年です。正確な日付を取得してください）
       3. 動画のURL（必ず https://www.youtube.com/watch?v=VIDEO_ID の形式で返してください。VIDEO_IDは11文字の英数字です）
       4. 詳細な要約（2000-3000文字程度）
@@ -190,6 +193,82 @@ export class GeminiService {
       }
       
       return null;
+    }
+  }
+
+  /**
+   * VIDEO_IDまたはURLを指定して要約を生成
+   * YouTube Data API v3で取得した正確なタイトルを使用
+   */
+  async summarizeVideo(videoUrl: string, title: string): Promise<{
+    summary: string;
+    keyPoints: string[];
+  }> {
+    this.ensureApiKey();
+    if (!this.ai) throw new Error('Gemini APIが初期化されていません');
+    
+    const prompt = `
+      以下のYouTube動画について、非常に詳細な要約を作成してください。
+
+      【動画情報】
+      - タイトル: ${title}
+      - URL: ${videoUrl}
+
+      【重要】この要約は、動画を見なくても内容を完全に理解できるレベルの詳細さが必要です。
+
+      1. 詳細な要約（2000-3000文字程度）
+         - 動画の全体像と目的を説明
+         - 動画内で言及されているすべての具体的な情報を含める
+         - 株式動画の場合: 紹介されている全銘柄、銘柄コード、価格、推奨理由、リスクなどをすべて記載
+         - 技術動画の場合: コード例、手順、設定方法などをすべて記載
+         - レビュー動画の場合: 製品名、特徴、価格、メリット・デメリットなどをすべて記載
+         - 解説動画の場合: 登場人物、場所、時系列、詳細な説明などをすべて記載
+         - 数値、データ、統計情報などは正確に記載
+         - 動画内で言及された重要な引用や発言も含める
+      2. 重要なポイント5-10個（各ポイントは具体的で詳細に記述）
+         - 動画の核心となる内容を箇条書きで整理
+         - 各ポイントは50-100文字程度で詳しく説明
+
+      【要約の品質基準】
+      - YouTubeを見なくても内容を完全に理解できるレベル
+      - 動画内で言及されたすべての重要な情報を含める
+      - 具体的な数値、名前、日付などを正確に記載
+      - 株式動画の場合は全銘柄を漏れなく記載
+      - 技術動画の場合は手順やコードを完全に記載
+
+      回答は必ず有効なJSON形式で返してください。
+    `;
+
+    try {
+      const response: GenerateContentResponse = await this.ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              summary: { type: Type.STRING },
+              keyPoints: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["summary", "keyPoints"]
+          }
+        },
+      });
+
+      const data = JSON.parse(response.text || "{}");
+      
+      return {
+        summary: data.summary || '',
+        keyPoints: data.keyPoints || []
+      };
+    } catch (error) {
+      console.error("Gemini Summarize Error:", error);
+      throw new Error("動画の要約中にエラーが発生しました。");
     }
   }
 }

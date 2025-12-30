@@ -241,6 +241,34 @@ export class ApiService {
         }
       }
       
+      // VIDEO_IDでも見つからない場合、published_atとtitleの最初の10文字の組み合わせでチェック（フォールバック）
+      // 同じチャンネル内で、同じ公開日時とタイトルの最初の10文字の動画は重複とみなす
+      if (!existingData && summary.publishedAt && summary.title) {
+        // published_atを日付部分のみに正規化（時刻の精度の問題を回避）
+        const publishedDate = summary.publishedAt.split('T')[0]; // YYYY-MM-DD形式に変換
+        // タイトルの最初の10文字を取得
+        const titlePrefix = summary.title.substring(0, 10);
+        
+        const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
+          .from('summaries')
+          .select('id')
+          .eq('channel_id', summary.channelId || '')
+          .like('published_at', `${publishedDate}%`) // 日付部分で一致
+          .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
+          .maybeSingle();
+        
+        if (errorByTitleAndDate && errorByTitleAndDate.code !== 'PGRST116') {
+          console.warn('published_at+title重複チェックエラー:', errorByTitleAndDate);
+        } else if (dataByTitleAndDate) {
+          console.log('🔍 published_at+title(最初の10文字)で重複を検出:', {
+            titlePrefix: titlePrefix,
+            publishedAt: summary.publishedAt,
+            existingId: dataByTitleAndDate.id
+          });
+          existingData = dataByTitleAndDate;
+        }
+      }
+      
       const existing = existingData;
       
       if (existing) {
@@ -345,7 +373,7 @@ export class ApiService {
     return response.json();
   }
 
-  async checkVideoExists(videoUrl: string): Promise<boolean> {
+  async checkVideoExists(videoUrl: string, options?: { publishedAt?: string; title?: string; channelId?: string }): Promise<boolean> {
     // URLからVIDEO_IDを抽出
     console.log('🔍 checkVideoExists: URL =', videoUrl);
     const videoId = extractVideoId(videoUrl);
@@ -366,7 +394,34 @@ export class ApiService {
           return false;
         }
         
-        return !!data;
+        if (data) {
+          return true;
+        }
+        
+        // published_atとtitleの最初の10文字でチェック（フォールバック）
+        if (options?.publishedAt && options?.title && options?.channelId) {
+          const publishedDate = options.publishedAt.split('T')[0];
+          const titlePrefix = options.title.substring(0, 10);
+          const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
+            .from('summaries')
+            .select('id')
+            .eq('channel_id', options.channelId)
+            .like('published_at', `${publishedDate}%`)
+            .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
+            .maybeSingle();
+          
+          if (errorByTitleAndDate && errorByTitleAndDate.code !== 'PGRST116') {
+            console.warn('published_at+title重複チェックエラー:', errorByTitleAndDate);
+          } else if (dataByTitleAndDate) {
+            console.log('🔍 published_at+title(最初の10文字)で重複を検出:', {
+              titlePrefix: titlePrefix,
+              publishedAt: options.publishedAt
+            });
+            return true;
+          }
+        }
+        
+        return false;
       }
       
       const summaries = await this.getSummaries();
@@ -397,16 +452,37 @@ export class ApiService {
       
       if (errorAll) {
         console.warn('全要約取得エラー:', errorAll);
-        return false;
-      }
-      
-      // 既存のvideo_urlからVIDEO_IDを抽出して比較
-      if (allSummaries) {
+      } else if (allSummaries) {
+        // 既存のvideo_urlからVIDEO_IDを抽出して比較
         for (const summary of allSummaries) {
           const existingVideoId = extractVideoId(summary.video_url);
           if (existingVideoId === videoId) {
             return true; // 重複が見つかった
           }
+        }
+      }
+      
+      // VIDEO_IDでも見つからない場合、published_atとtitleの最初の10文字でチェック（フォールバック）
+      if (options?.publishedAt && options?.title && options?.channelId) {
+        const publishedDate = options.publishedAt.split('T')[0];
+        const titlePrefix = options.title.substring(0, 10);
+        const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
+          .from('summaries')
+          .select('id')
+          .eq('channel_id', options.channelId)
+          .like('published_at', `${publishedDate}%`)
+          .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
+          .maybeSingle();
+        
+        if (errorByTitleAndDate && errorByTitleAndDate.code !== 'PGRST116') {
+          console.warn('published_at+title重複チェックエラー:', errorByTitleAndDate);
+        } else if (dataByTitleAndDate) {
+          console.log('🔍 published_at+title(最初の10文字)で重複を検出:', {
+            titlePrefix: titlePrefix,
+            publishedAt: options.publishedAt,
+            videoId: videoId
+          });
+          return true;
         }
       }
       

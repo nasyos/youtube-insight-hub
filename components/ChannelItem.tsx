@@ -9,21 +9,21 @@ interface ChannelItemProps {
 
 export const ChannelItem: React.FC<ChannelItemProps> = ({ channel, onRemove }) => {
   return (
-    <div className="flex items-center justify-between p-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-colors group">
+    <div className="flex items-center justify-between p-3 mb-2 rounded-xl bg-stone-50 hover:bg-stone-100 transition-colors group border border-stone-200">
       <div className="flex items-center space-x-3 overflow-hidden">
         <img 
           src={channel.thumbnailUrl} 
           alt={channel.name} 
-          className="w-10 h-10 rounded-full object-cover border-2 border-slate-700"
+          className="w-10 h-10 rounded-full object-cover border-2 border-stone-300"
         />
         <div className="overflow-hidden">
-          <p className="text-sm font-semibold truncate text-slate-100">{channel.name}</p>
-          <p className="text-xs text-slate-400 truncate">{channel.handle}</p>
+          <p className="text-sm font-semibold truncate text-gray-900">{channel.name}</p>
+          <p className="text-xs text-gray-600 truncate">{channel.handle}</p>
         </div>
       </div>
       <button 
         onClick={() => onRemove(channel.id)}
-        className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-red-400 transition-all"
+        className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-600 transition-all"
         title="解除"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">

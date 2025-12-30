@@ -87,13 +87,36 @@ export class GoogleApiService {
   }
 
   hasValidToken(): boolean {
+    // sessionStorageからトークンを再読み込み（ページリロード後など）
+    const savedToken = sessionStorage.getItem('google_access_token');
+    if (savedToken) {
+      this.accessToken = savedToken;
+    }
+    
     const expiry = sessionStorage.getItem('google_token_expiry');
-    return !!this.accessToken && (!expiry || Date.now() < parseInt(expiry));
+    const hasToken = !!this.accessToken;
+    const isNotExpired = !expiry || Date.now() < parseInt(expiry);
+    
+    return hasToken && isNotExpired;
+  }
+  
+  // トークンを明示的に再読み込み
+  refreshToken(): void {
+    const savedToken = sessionStorage.getItem('google_access_token');
+    if (savedToken) {
+      this.accessToken = savedToken;
+    }
   }
 
   private async getOrCreateFolder(): Promise<string> {
     if (this.folderId) return this.folderId;
-    if (!this.accessToken) throw new Error("AccessToken missing");
+    
+    // トークンを再読み込み
+    this.refreshToken();
+    
+    if (!this.accessToken) {
+      throw new Error("AccessToken missing. Please reconnect to Google.");
+    }
     
     const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='YouTube Insight Hub' and mimeType='application/vnd.google-apps.folder' and trashed=false`, {
       headers: { 'Authorization': `Bearer ${this.accessToken}` }
@@ -114,7 +137,12 @@ export class GoogleApiService {
   }
 
   async createSummaryDoc(summary: VideoSummary | VideoSummaryWithContent): Promise<string> {
-    if (!this.accessToken) throw new Error("AccessToken missing");
+    // トークンを再読み込み
+    this.refreshToken();
+    
+    if (!this.accessToken) {
+      throw new Error("AccessToken missing. Please reconnect to Google.");
+    }
     
     const folderId = await this.getOrCreateFolder();
     

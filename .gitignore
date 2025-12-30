@@ -7,6 +7,8 @@ yarn-error.log*
 # Build outputs
 dist/
 build/
+.vite/
+node_modules/.vite/
 
 # Environment variables
 .env
@@ -15,11 +17,16 @@ build/
 .env.test.local
 .env.production.local
 
+# MCP configuration (contains Personal Access Tokens)
+mcp.json
+**/mcp.json
+
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+.cursor/
 
 # OS generated files
 .DS_Store
