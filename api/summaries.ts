@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import type { VideoSummary } from '../types';
 
@@ -47,28 +48,22 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS設定
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   try {
     if (req.method === 'GET') {
       // 要約一覧取得
-      // req.urlが相対パスの場合は、ベースURLを追加
-      const urlString = req.url.startsWith('http') ? req.url : `https://${req.headers.get('host') || 'localhost'}${req.url}`;
-      const url = new URL(urlString);
-      const channelId = url.searchParams.get('channelId');
-      const limit = parseInt(url.searchParams.get('limit') || '50');
-      const offset = parseInt(url.searchParams.get('offset') || '0');
+      const channelId = req.query.channelId as string | undefined;
+      const limit = parseInt((req.query.limit as string) || '50');
+      const offset = parseInt((req.query.offset as string) || '0');
 
       let query = supabase
         .from('summaries')
@@ -100,19 +95,16 @@ export default async function handler(req: Request): Promise<Response> {
         updatedAt: row.updated_at,
       }));
 
-      return new Response(JSON.stringify(summaries), { status: 200, headers });
+      return res.status(200).json(summaries);
     }
 
     if (req.method === 'POST') {
       // 要約メタデータ保存
-      const summary: VideoSummary = await req.json();
+      const summary = req.body as VideoSummary;
 
       // バリデーション
       if (!summary.docUrl) {
-        return new Response(
-          JSON.stringify({ error: 'docUrl is required' }),
-          { status: 400, headers }
-        );
+        return res.status(400).json({ error: 'docUrl is required' });
       }
 
       // VIDEO_IDを抽出
@@ -241,7 +233,7 @@ export default async function handler(req: Request): Promise<Response> {
           updatedAt: data.updated_at,
         };
 
-        return new Response(JSON.stringify(updatedSummary), { status: 200, headers });
+        return res.status(200).json(updatedSummary);
       }
 
       // 新規作成
@@ -288,19 +280,13 @@ export default async function handler(req: Request): Promise<Response> {
         updatedAt: data.updated_at,
       };
 
-      return new Response(JSON.stringify(newSummary), { status: 201, headers });
+      return res.status(201).json(newSummary);
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers }
-    );
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     console.error('API Error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers }
-    );
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
 

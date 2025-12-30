@@ -3,27 +3,44 @@
  * 登録チャンネルの最新動画をチェック
  */
 
-import { YouTubeService } from '../../services/youtubeService.js';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
-const youtubeService = new YouTubeService();
+
+// YouTube API設定
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY || '';
+const YOUTUBE_BASE_URL = 'https://www.googleapis.com/youtube/v3';
+
+// YouTubeVideoDetails型定義
+interface YouTubeVideoDetails {
+  id: string;
+  title: string;
+  description: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  duration: string;
+  viewCount: string;
+  likeCount: string;
+  channelId: string;
+  channelTitle: string;
+}
 
 /**
  * APIキー認証を検証
  * Vercel Cronジョブからの呼び出しも許可
  */
-function verifyApiKey(req: Request): boolean {
+function verifyApiKey(req: VercelRequest): boolean {
   // Vercel Cronジョブからの呼び出しを許可
-  const isCronRequest = req.headers.get('X-Vercel-Cron') === '1';
+  const isCronRequest = req.headers['x-vercel-cron'] === '1';
   if (isCronRequest) {
     return true;
   }
   
-  const apiKey = req.headers.get('X-API-Key');
+  const apiKey = req.headers['x-api-key'] as string | undefined;
   const validApiKey = process.env.API_KEY;
   
   // 環境変数が設定されていない場合は認証をスキップ（開発環境用）
@@ -35,35 +52,170 @@ function verifyApiKey(req: Request): boolean {
   return apiKey === validApiKey;
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
-  };
+/**
+ * チャンネルのアップロードプレイリストIDを取得
+ */
+async function getChannelUploadsPlaylist(channelId: string): Promise<string | null> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error('YouTube APIキーが設定されていません。');
+  }
+
+  try {
+    const url = new URL(`${YOUTUBE_BASE_URL}/channels`);
+    url.searchParams.set('part', 'contentDetails');
+    url.searchParams.set('id', channelId);
+    url.searchParams.set('key', YOUTUBE_API_KEY);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`YouTube API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.items && data.items.length > 0) {
+      return data.items[0].contentDetails?.relatedPlaylists?.uploads || null;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('getChannelUploadsPlaylist error:', error);
+    return null;
+  }
+}
+
+/**
+ * プレイリストの動画VIDEO_IDリストを取得
+ */
+async function getPlaylistVideos(playlistId: string, maxResults: number = 3): Promise<string[]> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error('YouTube APIキーが設定されていません。');
+  }
+
+  try {
+    const url = new URL(`${YOUTUBE_BASE_URL}/playlistItems`);
+    url.searchParams.set('part', 'contentDetails');
+    url.searchParams.set('playlistId', playlistId);
+    url.searchParams.set('maxResults', maxResults.toString());
+    url.searchParams.set('key', YOUTUBE_API_KEY);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`YouTube API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.items) {
+      return data.items
+        .filter((item: any) => item.contentDetails?.videoId)
+        .map((item: any) => item.contentDetails.videoId);
+    }
+
+    return [];
+  } catch (error) {
+    console.error('getPlaylistVideos error:', error);
+    return [];
+  }
+}
+
+/**
+ * VIDEO_IDから動画の詳細情報を取得
+ */
+async function getVideoDetails(videoIds: string[]): Promise<YouTubeVideoDetails[]> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error('YouTube APIキーが設定されていません。');
+  }
+
+  if (videoIds.length === 0) {
+    return [];
+  }
+
+  const batchSize = 50;
+  const results: YouTubeVideoDetails[] = [];
+
+  for (let i = 0; i < videoIds.length; i += batchSize) {
+    const batch = videoIds.slice(i, i + batchSize);
+
+    try {
+      const url = new URL(`${YOUTUBE_BASE_URL}/videos`);
+      url.searchParams.set('part', 'snippet,contentDetails,statistics');
+      url.searchParams.set('id', batch.join(','));
+      url.searchParams.set('key', YOUTUBE_API_KEY);
+
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(`YouTube API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.items) {
+        for (const item of data.items) {
+          results.push({
+            id: item.id,
+            title: item.snippet.title,
+            description: item.snippet.description || '',
+            publishedAt: item.snippet.publishedAt,
+            thumbnailUrl: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url || '',
+            duration: item.contentDetails?.duration || '',
+            viewCount: item.statistics?.viewCount || '0',
+            likeCount: item.statistics?.likeCount || '0',
+            channelId: item.snippet.channelId,
+            channelTitle: item.snippet.channelTitle
+          });
+        }
+      }
+    } catch (error) {
+      console.error('getVideoDetails error:', error);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 要約ジョブを作成
+ */
+async function createVideoJob(videoId: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('video_jobs')
+      .insert({
+        id: `job_${videoId}_${Date.now()}`,
+        video_id: videoId,
+        status: 'pending'
+      });
+
+    if (error && error.code !== '23505') { // 23505 = unique_violation
+      console.error('Create video job error:', error);
+    }
+  } catch (error) {
+    console.error('createVideoJob error:', error);
+  }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS設定
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers }
-    );
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   // APIキー認証
   if (!verifyApiKey(req)) {
-    return new Response(
-      JSON.stringify({ error: 'Unauthorized. Invalid or missing API key.' }),
-      { status: 401, headers }
-    );
+    return res.status(401).json({ error: 'Unauthorized. Invalid or missing API key.' });
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = req.body || {};
     const channelIds = body.channelIds || []; // オプション: 指定しない場合は全チャンネル
     const maxResults = body.maxResults || 3;
 
@@ -84,10 +236,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     if (!channels || channels.length === 0) {
-      return new Response(
-        JSON.stringify({ message: 'No enabled channels found', processed: 0 }),
-        { status: 200, headers }
-      );
+      return res.status(200).json({ message: 'No enabled channels found', processed: 0 });
     }
 
     const results = {
@@ -103,7 +252,7 @@ export default async function handler(req: Request): Promise<Response> {
         let uploadsPlaylistId = channel.uploads_playlist_id;
         
         if (!uploadsPlaylistId && channel.channel_id) {
-          uploadsPlaylistId = await youtubeService.getChannelUploadsPlaylist(channel.channel_id);
+          uploadsPlaylistId = await getChannelUploadsPlaylist(channel.channel_id);
           
           if (uploadsPlaylistId) {
             // データベースに保存
@@ -120,7 +269,7 @@ export default async function handler(req: Request): Promise<Response> {
         }
 
         // プレイリストから最新動画を取得
-        const videoIds = await youtubeService.getPlaylistVideos(uploadsPlaylistId, maxResults);
+        const videoIds = await getPlaylistVideos(uploadsPlaylistId, maxResults);
 
         if (videoIds.length === 0) {
           continue;
@@ -140,7 +289,7 @@ export default async function handler(req: Request): Promise<Response> {
         }
 
         // 新規動画の詳細を取得
-        const videoDetails = await youtubeService.getVideoDetails(newVideoIds);
+        const videoDetails = await getVideoDetails(newVideoIds);
 
         // データベースに保存
         for (const video of videoDetails) {
@@ -179,38 +328,9 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    return new Response(
-      JSON.stringify(results),
-      { status: 200, headers }
-    );
+    return res.status(200).json(results);
   } catch (error: any) {
     console.error('Poll error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers }
-    );
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
-
-/**
- * 要約ジョブを作成
- */
-async function createVideoJob(videoId: string): Promise<void> {
-  try {
-    const { error } = await supabase
-      .from('video_jobs')
-      .insert({
-        id: `job_${videoId}_${Date.now()}`,
-        video_id: videoId,
-        status: 'pending'
-      });
-
-    if (error && error.code !== '23505') { // 23505 = unique_violation
-      console.error('Create video job error:', error);
-    }
-  } catch (error) {
-    console.error('createVideoJob error:', error);
-  }
-}
-
-

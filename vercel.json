@@ -2,13 +2,17 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "services/**/*"
+    }
+  },
   "crons": [
     {
       "path": "/api/youtube/poll",
       "schedule": "0 0 * * *"
     },
     {
-      
       "path": "/api/youtube/jobs/process",
       "schedule": "0 0 * * *"
     }

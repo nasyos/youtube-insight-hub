@@ -3,29 +3,26 @@
  * 期限切れまたは期限間近の購読を再購読
  */
 
-import { YouTubeService } from '../../../services/youtubeService.js';
-import { WebSubService } from '../../../services/websubService.js';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
-const youtubeService = new YouTubeService();
-const websubService = new WebSubService();
 
 /**
  * APIキー認証を検証
  * Vercel Cronジョブからの呼び出しも許可
  */
-function verifyApiKey(req: Request): boolean {
+function verifyApiKey(req: VercelRequest): boolean {
   // Vercel Cronジョブからの呼び出しを許可
-  const isCronRequest = req.headers.get('X-Vercel-Cron') === '1';
+  const isCronRequest = req.headers['x-vercel-cron'] === '1';
   if (isCronRequest) {
     return true;
   }
   
-  const apiKey = req.headers.get('X-API-Key');
+  const apiKey = req.headers['x-api-key'] as string | undefined;
   const validApiKey = process.env.API_KEY;
   
   // 環境変数が設定されていない場合は認証をスキップ（開発環境用）
@@ -37,35 +34,71 @@ function verifyApiKey(req: Request): boolean {
   return apiKey === validApiKey;
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
-  };
+/**
+ * WebSub topic URLを生成
+ */
+function generateTopicUrl(channelId: string): string {
+  return `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
+}
+
+/**
+ * WebSub callback URLを生成
+ */
+function generateCallbackUrl(baseUrl: string): string {
+  return `${baseUrl}/api/youtube/websub/callback`;
+}
+
+/**
+ * WebSub Hubに購読リクエストを送信
+ */
+async function subscribeToWebSub(topicUrl: string, callbackUrl: string, leaseSeconds: number = 432000): Promise<boolean> {
+  try {
+    const hubUrl = 'https://pubsubhubbub.appspot.com/subscribe';
+    
+    const params = new URLSearchParams({
+      'hub.mode': 'subscribe',
+      'hub.topic': topicUrl,
+      'hub.callback': callbackUrl,
+      'hub.lease_seconds': leaseSeconds.toString()
+    });
+
+    const response = await fetch(hubUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+
+    // 202 Accepted または 204 No Content が正常
+    return response.status === 202 || response.status === 204;
+  } catch (error) {
+    console.error('subscribeToWebSub error:', error);
+    return false;
+  }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS設定
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers }
-    );
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   // APIキー認証
   if (!verifyApiKey(req)) {
-    return new Response(
-      JSON.stringify({ error: 'Unauthorized. Invalid or missing API key.' }),
-      { status: 401, headers }
-    );
+    return res.status(401).json({ error: 'Unauthorized. Invalid or missing API key.' });
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = req.body as { channelId?: string };
     const channelId = body.channelId; // オプション: 指定しない場合は全チャンネル
 
     // 期限切れまたは期限間近（24時間以内）の購読を取得
@@ -89,10 +122,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     if (!subscriptions || subscriptions.length === 0) {
-      return new Response(
-        JSON.stringify({ message: 'No subscriptions to renew', processed: 0 }),
-        { status: 200, headers }
-      );
+      return res.status(200).json({ message: 'No subscriptions to renew', processed: 0 });
     }
 
     const results = {
@@ -101,9 +131,9 @@ export default async function handler(req: Request): Promise<Response> {
       errors: [] as string[]
     };
 
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.CALLBACK_BASE_URL || 'http://localhost:5173';
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['host'] || 'localhost';
+    const baseUrl = `${protocol}://${host}`;
 
     // 各購読を再購読
     for (const sub of subscriptions) {
@@ -112,14 +142,14 @@ export default async function handler(req: Request): Promise<Response> {
         const channelId = channel.channel_id;
 
         // WebSub topic URLを生成
-        const topicUrl = websubService.generateTopicUrl(channelId);
+        const topicUrl = generateTopicUrl(channelId);
 
         // WebSub callback URLを生成
-        const callbackUrl = websubService.generateCallbackUrl(baseUrl);
+        const callbackUrl = generateCallbackUrl(baseUrl);
 
         // WebSub Hubに再購読リクエスト送信
         const leaseSeconds = 432000; // 5日間
-        const success = await youtubeService.subscribeToWebSub(topicUrl, callbackUrl, leaseSeconds);
+        const success = await subscribeToWebSub(topicUrl, callbackUrl, leaseSeconds);
 
         if (!success) {
           results.errors.push(`Failed to resubscribe: ${channel.name}`);
@@ -150,16 +180,9 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    return new Response(
-      JSON.stringify(results),
-      { status: 200, headers }
-    );
+    return res.status(200).json(results);
   } catch (error: any) {
     console.error('Resubscribe error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers }
-    );
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
-
