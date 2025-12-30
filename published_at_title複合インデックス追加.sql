@@ -8,3 +8,4 @@ ON summaries(channel_id, title, published_at);
 -- コメント追加
 COMMENT ON INDEX idx_summaries_channel_title_published IS 'チャンネルID、タイトル、公開日時の複合インデックス（重複チェック用）';
 
+

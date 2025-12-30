@@ -177,3 +177,4 @@ CursorのMCP機能を使用して、Supabaseデータベースにアクセスで
 
 これで、Cursorから直接Supabaseデータベースにアクセスできるようになります！
 
+

@@ -161,3 +161,4 @@ private async getOrCreateFolder(): Promise<string> {
 
 これにより、「AccessToken missing」エラーが発生した場合でも、ユーザーに適切な対処方法を案内できるようになりました。
 
+

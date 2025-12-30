@@ -63,7 +63,9 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === 'GET') {
       // 要約一覧取得
-      const url = new URL(req.url);
+      // req.urlが相対パスの場合は、ベースURLを追加
+      const urlString = req.url.startsWith('http') ? req.url : `https://${req.headers.get('host') || 'localhost'}${req.url}`;
+      const url = new URL(urlString);
       const channelId = url.searchParams.get('channelId');
       const limit = parseInt(url.searchParams.get('limit') || '50');
       const offset = parseInt(url.searchParams.get('offset') || '0');

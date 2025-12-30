@@ -257,3 +257,4 @@ curl -X POST http://localhost:5173/api/youtube/jobs/process \
 
 すべての主要機能が実装されました。次はテストとデプロイです。
 
+

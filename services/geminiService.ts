@@ -6,29 +6,37 @@ export class GeminiService {
   private ai: GoogleGenAI | null = null;
 
   constructor() {
-    // デバッグ: 実際に読み込まれている環境変数を確認
-    const env = (import.meta as any).env || {};
-    if (env.DEV) {
-      console.log('🔍 [デバッグ] import.meta.env の内容:', {
-        DEV: env.DEV,
-        MODE: env.MODE,
-        VITE_GEMINI_API_KEY: env.VITE_GEMINI_API_KEY ? `${env.VITE_GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
-        GEMINI_API_KEY: env.GEMINI_API_KEY ? `${env.GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
-        allKeys: Object.keys(env).filter(key => key.startsWith('VITE_'))
-      });
-    }
+    let apiKey = '';
     
-    const apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY;
-    
-    // デバッグ用ログ（開発環境のみ）
-    if (env.DEV) {
-      console.log('🔍 Gemini APIキーチェック:', apiKey ? `${apiKey.substring(0, 20)}...` : '未設定');
+    // Vercel Serverless Functionsでは process.env を使用
+    // クライアント側では import.meta.env を使用
+    if (typeof process !== 'undefined' && process.env) {
+      // Serverless Functions環境
+      apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+    } else if (typeof import.meta !== 'undefined') {
+      // クライアント側環境
+      const env = (import.meta as any).env || {};
+      if (env.DEV) {
+        console.log('🔍 [デバッグ] import.meta.env の内容:', {
+          DEV: env.DEV,
+          MODE: env.MODE,
+          VITE_GEMINI_API_KEY: env.VITE_GEMINI_API_KEY ? `${env.VITE_GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
+          GEMINI_API_KEY: env.GEMINI_API_KEY ? `${env.GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
+          allKeys: Object.keys(env).filter(key => key.startsWith('VITE_'))
+        });
+      }
+      apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || '';
+      
+      // デバッグ用ログ（開発環境のみ）
+      if (env.DEV) {
+        console.log('🔍 Gemini APIキーチェック:', apiKey ? `${apiKey.substring(0, 20)}...` : '未設定');
+      }
     }
     
     if (apiKey && apiKey !== 'your_gemini_api_key_here' && apiKey.length > 10) {
       try {
         this.ai = new GoogleGenAI({ apiKey });
-        if ((import.meta as any).env?.DEV) {
+        if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
           console.log('✅ Gemini APIキーが正常に設定されました');
         }
       } catch (error) {

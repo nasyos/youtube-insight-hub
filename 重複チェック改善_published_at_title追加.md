@@ -143,3 +143,4 @@ ON summaries(channel_id, title, published_at);
    - 新しい動画をスキャンして、重複が発生しないことを確認
    - 同じ動画でも、異なるURL形式が返されても重複チェックが機能することを確認
 
+

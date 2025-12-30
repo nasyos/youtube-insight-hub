@@ -3,8 +3,8 @@
  * チャンネルをWebSub Hubに購読
  */
 
-import { YouTubeService } from '../../../services/youtubeService';
-import { WebSubService } from '../../../services/websubService';
+import { YouTubeService } from '../../../services/youtubeService.js';
+import { WebSubService } from '../../../services/websubService.js';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -14,12 +14,35 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const youtubeService = new YouTubeService();
 const websubService = new WebSubService();
 
+/**
+ * APIキー認証を検証
+ * Vercel Cronジョブからの呼び出しも許可
+ */
+function verifyApiKey(req: Request): boolean {
+  // Vercel Cronジョブからの呼び出しを許可
+  const isCronRequest = req.headers.get('X-Vercel-Cron') === '1';
+  if (isCronRequest) {
+    return true;
+  }
+  
+  const apiKey = req.headers.get('X-API-Key');
+  const validApiKey = process.env.API_KEY;
+  
+  // 環境変数が設定されていない場合は認証をスキップ（開発環境用）
+  if (!validApiKey) {
+    console.warn('⚠️ API_KEY環境変数が設定されていません。認証をスキップします。');
+    return true;
+  }
+  
+  return apiKey === validApiKey;
+}
+
 export default async function handler(req: Request): Promise<Response> {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
   };
 
   if (req.method === 'OPTIONS') {
@@ -30,6 +53,14 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
       { status: 405, headers }
+    );
+  }
+
+  // APIキー認証
+  if (!verifyApiKey(req)) {
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized. Invalid or missing API key.' }),
+      { status: 401, headers }
     );
   }
 
@@ -121,4 +152,5 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }
 }
+
 

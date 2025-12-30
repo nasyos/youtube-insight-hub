@@ -10,3 +10,4 @@ ALTER TABLE summaries
 COMMENT ON COLUMN summaries.summary IS '要約内容（オプショナル）';
 COMMENT ON COLUMN summaries.key_points IS '重要なポイント（JSON配列、オプショナル）';
 
+

@@ -4,7 +4,7 @@
  * POST: 通知受信
  */
 
-import { WebSubService } from '../../../services/websubService';
+import { WebSubService, type WebSubNotification } from '../../../services/websubService.js';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -234,4 +234,5 @@ async function createVideoJob(videoId: string): Promise<void> {
     console.error('createVideoJob error:', error);
   }
 }
+
 

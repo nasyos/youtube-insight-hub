@@ -36,3 +36,4 @@ WHERE video_id IS NULL;
 -- コメント追加
 COMMENT ON COLUMN summaries.video_id IS 'YouTube VIDEO_ID（11文字、重複チェック用）';
 
+

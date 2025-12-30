@@ -72,3 +72,4 @@ async function deleteAllData() {
 // スクリプトを実行
 deleteAllData();
 
+

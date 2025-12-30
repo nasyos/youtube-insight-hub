@@ -192,3 +192,4 @@ Gemini APIのレスポンスには、使用したトークン数が含まれて�
 - [Google AI Studio](https://aistudio.google.com/app/apikey)
 - [Google Cloud Console](https://console.cloud.google.com)
 
+

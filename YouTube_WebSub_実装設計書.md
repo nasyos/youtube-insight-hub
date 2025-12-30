@@ -388,3 +388,4 @@ export class VideoJobService {
 4. APIエンドポイントの実装
 5. 要約ジョブ処理の実装
 
+

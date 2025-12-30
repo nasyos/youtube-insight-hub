@@ -37,8 +37,18 @@ export class YouTubeService {
   private baseUrl = 'https://www.googleapis.com/youtube/v3';
 
   constructor() {
-    const env = (import.meta as any).env || {};
-    this.apiKey = env.VITE_YOUTUBE_API_KEY || '';
+    // Vercel Serverless Functionsでは process.env を使用
+    // クライアント側では import.meta.env を使用
+    if (typeof process !== 'undefined' && process.env) {
+      // Serverless Functions環境
+      this.apiKey = process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY || '';
+    } else if (typeof import.meta !== 'undefined') {
+      // クライアント側環境
+      const env = (import.meta as any).env || {};
+      this.apiKey = env.VITE_YOUTUBE_API_KEY || '';
+    } else {
+      this.apiKey = '';
+    }
     
     if (!this.apiKey) {
       console.warn('⚠️ YouTube APIキーが設定されていません。');
@@ -328,4 +338,5 @@ export class YouTubeService {
     }
   }
 }
+
 
