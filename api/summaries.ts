@@ -179,11 +179,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // タイトルの最初の10文字を取得
         const titlePrefix = summary.title.substring(0, 10);
         
+        // TIMESTAMP型のカラムにはLIKE演算子は使用できないため、日付範囲でチェック
+        const startOfDay = `${publishedDate}T00:00:00`;
+        const endOfDay = `${publishedDate}T23:59:59.999`;
+        
         const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
           .from('summaries')
           .select('id')
           .eq('channel_id', summary.channelId)
-          .like('published_at', `${publishedDate}%`) // 日付部分で一致
+          .gte('published_at', startOfDay) // その日の開始時刻以上
+          .lte('published_at', endOfDay) // その日の終了時刻以下
           .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
           .maybeSingle();
         
@@ -326,11 +331,17 @@ export async function checkVideoExists(videoUrl: string, options?: { publishedAt
     if (options?.publishedAt && options?.title && options?.channelId) {
       const publishedDate = options.publishedAt.split('T')[0];
       const titlePrefix = options.title.substring(0, 10);
+      
+      // TIMESTAMP型のカラムにはLIKE演算子は使用できないため、日付範囲でチェック
+      const startOfDay = `${publishedDate}T00:00:00`;
+      const endOfDay = `${publishedDate}T23:59:59.999`;
+      
       const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
         .from('summaries')
         .select('id')
         .eq('channel_id', options.channelId)
-        .like('published_at', `${publishedDate}%`)
+        .gte('published_at', startOfDay) // その日の開始時刻以上
+        .lte('published_at', endOfDay) // その日の終了時刻以下
         .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
         .maybeSingle();
       
@@ -385,11 +396,17 @@ export async function checkVideoExists(videoUrl: string, options?: { publishedAt
   if (options?.publishedAt && options?.title && options?.channelId) {
     const publishedDate = options.publishedAt.split('T')[0];
     const titlePrefix = options.title.substring(0, 10);
+    
+    // TIMESTAMP型のカラムにはLIKE演算子は使用できないため、日付範囲でチェック
+    const startOfDay = `${publishedDate}T00:00:00`;
+    const endOfDay = `${publishedDate}T23:59:59.999`;
+    
     const { data: dataByTitleAndDate, error: errorByTitleAndDate } = await supabase
       .from('summaries')
       .select('id')
       .eq('channel_id', options.channelId)
-      .like('published_at', `${publishedDate}%`)
+      .gte('published_at', startOfDay) // その日の開始時刻以上
+      .lte('published_at', endOfDay) // その日の終了時刻以下
       .like('title', `${titlePrefix}%`) // タイトルの最初の10文字で一致
       .maybeSingle();
     
