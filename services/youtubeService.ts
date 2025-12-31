@@ -66,10 +66,16 @@ export class YouTubeService {
    * 複数の方法を試行: forHandle → search.list
    */
   async getChannelId(handle: string): Promise<string | null> {
-    this.ensureApiKey();
+    try {
+      this.ensureApiKey();
+    } catch (error: any) {
+      console.error('❌ YouTube APIキーが設定されていません。VITE_YOUTUBE_API_KEYを設定してください。');
+      throw new Error('YouTube APIキーが設定されていません。Vercelダッシュボードの「Settings」→「Environment Variables」で VITE_YOUTUBE_API_KEY を設定し、再デプロイしてください。');
+    }
     
     try {
       const handleWithoutAt = handle.replace('@', '');
+      console.log('🔍 getChannelId: ハンドル =', handle, '(without @ =', handleWithoutAt + ')');
       
       // 方法1: forHandleを使用（推奨）
       try {
@@ -78,15 +84,25 @@ export class YouTubeService {
         url.searchParams.set('forHandle', handleWithoutAt);
         url.searchParams.set('key', this.apiKey);
 
+        console.log('🔍 getChannelId: forHandle APIを呼び出し中...');
         const response = await fetch(url.toString());
+        
         if (response.ok) {
           const data = await response.json();
+          console.log('🔍 getChannelId: forHandle APIレスポンス =', data);
           if (data.items && data.items.length > 0) {
-            return data.items[0].id;
+            const channelId = data.items[0].id;
+            console.log('✅ getChannelId: チャンネルIDを取得しました (forHandle) =', channelId);
+            return channelId;
+          } else {
+            console.warn('⚠️ getChannelId: forHandleでチャンネルが見つかりませんでした');
           }
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.warn('⚠️ getChannelId: forHandle APIエラー', response.status, errorData);
         }
-      } catch (error) {
-        console.warn('forHandle method failed, trying search.list:', error);
+      } catch (error: any) {
+        console.warn('⚠️ getChannelId: forHandle method failed:', error.message);
       }
 
       // 方法2: search.listを使用（フォールバック）
@@ -98,28 +114,41 @@ export class YouTubeService {
         searchUrl.searchParams.set('maxResults', '1');
         searchUrl.searchParams.set('key', this.apiKey);
 
+        console.log('🔍 getChannelId: search.list APIを呼び出し中...');
         const searchResponse = await fetch(searchUrl.toString());
+        
         if (searchResponse.ok) {
           const searchData = await searchResponse.json();
+          console.log('🔍 getChannelId: search.list APIレスポンス =', searchData);
           if (searchData.items && searchData.items.length > 0) {
             // ハンドル名が一致するか確認
             const item = searchData.items[0];
             const customUrl = item.snippet?.customUrl;
+            const channelId = item.snippet.channelId;
+            
             if (customUrl && customUrl.toLowerCase() === handle.toLowerCase()) {
-              return item.snippet.channelId;
+              console.log('✅ getChannelId: チャンネルIDを取得しました (search.list, ハンドル一致) =', channelId);
+              return channelId;
             }
             // ハンドルが一致しない場合でも、最初の結果を返す（フォールバック）
-            return item.snippet.channelId;
+            console.log('⚠️ getChannelId: ハンドルが一致しませんが、最初の結果を返します (search.list) =', channelId);
+            return channelId;
+          } else {
+            console.warn('⚠️ getChannelId: search.listでチャンネルが見つかりませんでした');
           }
+        } else {
+          const errorData = await searchResponse.json().catch(() => ({}));
+          console.warn('⚠️ getChannelId: search.list APIエラー', searchResponse.status, errorData);
         }
-      } catch (error) {
-        console.warn('search.list method failed:', error);
+      } catch (error: any) {
+        console.warn('⚠️ getChannelId: search.list method failed:', error.message);
       }
 
+      console.error('❌ getChannelId: すべての方法でチャンネルIDを取得できませんでした');
       return null;
-    } catch (error) {
-      console.error('getChannelId error:', error);
-      return null;
+    } catch (error: any) {
+      console.error('❌ getChannelId error:', error);
+      throw error; // エラーを再スローして、呼び出し元で処理できるようにする
     }
   }
 

@@ -282,17 +282,29 @@ const App: React.FC = () => {
         if (!channels.some(c => c.handle === channel.handle)) {
           // YouTube Data API v3でチャンネルIDとアップロードプレイリストIDを取得
           try {
+            console.log('🔍 YouTube Data API v3でチャンネルIDを取得中...');
             const channelId = await youtube.current.getChannelId(channel.handle);
             if (channelId) {
+              console.log('✅ チャンネルIDを取得しました:', channelId);
               channel.channelId = channelId;
+              
+              console.log('🔍 アップロードプレイリストIDを取得中...');
               const uploadsPlaylistId = await youtube.current.getChannelUploadsPlaylist(channelId);
               if (uploadsPlaylistId) {
+                console.log('✅ アップロードプレイリストIDを取得しました:', uploadsPlaylistId);
                 channel.uploadsPlaylistId = uploadsPlaylistId;
+              } else {
+                console.warn('⚠️ アップロードプレイリストIDを取得できませんでした');
               }
+            } else {
+              console.warn('⚠️ チャンネルIDを取得できませんでした。YouTube APIキーが設定されているか、ハンドルが正しいか確認してください。');
+              setError('チャンネルIDを取得できませんでした。YouTube APIキー（VITE_YOUTUBE_API_KEY）が設定されているか確認してください。');
             }
-          } catch (youtubeError) {
-            console.warn('YouTube Data API v3でのチャンネルID取得に失敗しました:', youtubeError);
-            // エラーでも続行（channel_idなしで保存）
+          } catch (youtubeError: any) {
+            console.error('❌ YouTube Data API v3でのチャンネルID取得に失敗しました:', youtubeError);
+            setError(youtubeError.message || 'YouTube Data API v3でのチャンネルID取得に失敗しました。');
+            // エラーでも続行（channel_idなしで保存）するか、エラーで停止するかは要検討
+            // 現状はエラーメッセージを表示して続行
           }
 
           // データベースに保存
