@@ -4,17 +4,18 @@
   ],
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "services/**/*"
+      "includeFiles": "services/**/*",
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/youtube/poll",
-      "schedule": "0 0 * * *"
+      "schedule": "0 */6 * * *"
     },
     {
       "path": "/api/youtube/jobs/process",
-      "schedule": "0 0 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
