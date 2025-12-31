@@ -1,4 +1,4 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const YOUTUBE_BASE_URL = 'https://www.googleapis.com/youtube/v3';
 
