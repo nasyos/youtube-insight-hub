@@ -16,19 +16,24 @@ export class GeminiService {
     } else if (typeof import.meta !== 'undefined') {
       // クライアント側環境
       const env = (import.meta as any).env || {};
-      if (env.DEV) {
+      const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+      
+      // デバッグログ（開発環境またはVercel環境）
+      if (env.DEV || isVercel) {
         console.log('🔍 [デバッグ] import.meta.env の内容:', {
           DEV: env.DEV,
           MODE: env.MODE,
+          isVercel: isVercel,
           VITE_GEMINI_API_KEY: env.VITE_GEMINI_API_KEY ? `${env.VITE_GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
           GEMINI_API_KEY: env.GEMINI_API_KEY ? `${env.GEMINI_API_KEY.substring(0, 20)}...` : '未設定',
-          allKeys: Object.keys(env).filter(key => key.startsWith('VITE_'))
+          allViteKeys: Object.keys(env).filter(key => key.startsWith('VITE_')),
+          allKeys: Object.keys(env).slice(0, 10) // 最初の10個のキーを表示
         });
       }
       apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || '';
       
-      // デバッグ用ログ（開発環境のみ）
-      if (env.DEV) {
+      // デバッグ用ログ（開発環境またはVercel環境）
+      if (env.DEV || isVercel) {
         console.log('🔍 Gemini APIキーチェック:', apiKey ? `${apiKey.substring(0, 20)}...` : '未設定');
       }
     }
