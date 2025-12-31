@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import type { TrackedChannel } from '../types';
 
@@ -8,17 +9,14 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABA
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS設定
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   try {
@@ -37,14 +35,16 @@ export default async function handler(req: Request): Promise<Response> {
         handle: row.handle,
         lastChecked: row.last_checked || new Date().toISOString(),
         thumbnailUrl: row.thumbnail_url || '',
+        channelId: row.channel_id || undefined,
+        uploadsPlaylistId: row.uploads_playlist_id || undefined,
       }));
 
-      return new Response(JSON.stringify(channels), { status: 200, headers });
+      return res.status(200).json(channels);
     }
 
     if (req.method === 'POST') {
       // チャンネル追加
-      const channel: TrackedChannel = await req.json();
+      const channel = req.body as TrackedChannel;
 
       const { data, error } = await supabase
         .from('channels')
@@ -54,6 +54,8 @@ export default async function handler(req: Request): Promise<Response> {
           handle: channel.handle,
           thumbnail_url: channel.thumbnailUrl,
           last_checked: channel.lastChecked || new Date().toISOString(),
+          channel_id: channel.channelId || null,
+          uploads_playlist_id: channel.uploadsPlaylistId || null,
         })
         .select()
         .single();
@@ -61,20 +63,28 @@ export default async function handler(req: Request): Promise<Response> {
       if (error) {
         // 重複エラーの場合
         if (error.code === '23505') {
-          return new Response(
-            JSON.stringify({ error: 'このチャンネルは既に登録されています。' }),
-            { status: 409, headers }
-          );
+          return res.status(409).json({ error: 'このチャンネルは既に登録されています。' });
         }
         throw error;
       }
 
-      return new Response(JSON.stringify(data), { status: 201, headers });
+      const savedChannel: TrackedChannel = {
+        id: data.id,
+        name: data.name,
+        handle: data.handle,
+        lastChecked: data.last_checked || new Date().toISOString(),
+        thumbnailUrl: data.thumbnail_url || '',
+        channelId: data.channel_id || undefined,
+        uploadsPlaylistId: data.uploads_playlist_id || undefined,
+      };
+
+      return res.status(201).json(savedChannel);
     }
 
     if (req.method === 'DELETE') {
       // チャンネル削除
-      const { id } = await req.json();
+      const body = req.body as { id: string };
+      const { id } = body;
 
       const { error } = await supabase
         .from('channels')
@@ -83,19 +93,13 @@ export default async function handler(req: Request): Promise<Response> {
 
       if (error) throw error;
 
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers });
+      return res.status(200).json({ success: true });
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers }
-    );
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     console.error('API Error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers }
-    );
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
 

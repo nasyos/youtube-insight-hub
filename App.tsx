@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GeminiService } from './services/geminiService';
 import { GoogleApiService } from './services/googleApiService';
 import { ApiService } from './services/apiService';
+import { YouTubeService } from './services/youtubeService';
 import { VideoSummary, TrackedChannel, StorageKey, GoogleConfig, VideoSummaryWithContent } from './types';
 import { ChannelItem } from './components/ChannelItem';
 import { SummaryTable } from './components/SummaryTable';
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   const gemini = useRef(new GeminiService());
   const googleApi = useRef<GoogleApiService | null>(null);
   const api = useRef(new ApiService());
+  const youtube = useRef(new YouTubeService());
 
   // 初期データ読み込み
   useEffect(() => {
@@ -153,9 +155,9 @@ const App: React.FC = () => {
   const handleExportToGoogle = async (summary: VideoSummary) => {
     if (!googleApi.current) return;
     try {
-      const docUrl = await googleApi.current.createSummaryDoc(summary);
+      const { docUrl, docId } = await googleApi.current.createSummaryDoc(summary);
       // データベースを更新
-      const updatedSummary = { ...summary, docUrl };
+      const updatedSummary = { ...summary, docUrl, docId };
       await api.current.saveSummary(updatedSummary);
       setSummaries(prev => prev.map(s => s.id === summary.id ? updatedSummary : s));
     } catch (err: any) {
@@ -221,7 +223,7 @@ const App: React.FC = () => {
 
           try {
             // 1. まずGoogleドキュメントを作成（要約内容を保存）
-            const docUrl = await googleApi.current.createSummaryDoc(s);
+            const { docUrl, docId } = await googleApi.current.createSummaryDoc(s);
             
             // 2. メタデータと要約内容をデータベースに保存
             const summaryMetadata: VideoSummary = {
@@ -233,6 +235,7 @@ const App: React.FC = () => {
               channelTitle: s.channelTitle,
               url: s.url,
               docUrl: docUrl,
+              docId: docId, // Google Docs IDを保存
               summary: s.summary, // 要約内容を保存
               keyPoints: s.keyPoints, // 重要なポイントを保存
             };
@@ -277,10 +280,52 @@ const App: React.FC = () => {
       const channel = await gemini.current.findChannel(searchQuery);
       if (channel) {
         if (!channels.some(c => c.handle === channel.handle)) {
+          // YouTube Data API v3でチャンネルIDとアップロードプレイリストIDを取得
+          try {
+            const channelId = await youtube.current.getChannelId(channel.handle);
+            if (channelId) {
+              channel.channelId = channelId;
+              const uploadsPlaylistId = await youtube.current.getChannelUploadsPlaylist(channelId);
+              if (uploadsPlaylistId) {
+                channel.uploadsPlaylistId = uploadsPlaylistId;
+              }
+            }
+          } catch (youtubeError) {
+            console.warn('YouTube Data API v3でのチャンネルID取得に失敗しました:', youtubeError);
+            // エラーでも続行（channel_idなしで保存）
+          }
+
           // データベースに保存
           const savedChannel = await api.current.addChannel(channel);
           setChannels(prev => [...prev, savedChannel]);
           setSearchQuery('');
+
+          // WebSub購読を自動実行（channel_idが取得できた場合）
+          if (savedChannel.channelId) {
+            try {
+              const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
+              if (apiKey) {
+                const response = await fetch('/api/youtube/websub/subscribe', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                  },
+                  body: JSON.stringify({ channelId: savedChannel.channelId })
+                });
+                if (response.ok) {
+                  console.log('✅ WebSub購読を開始しました:', savedChannel.channelId);
+                } else {
+                  console.warn('⚠️ WebSub購読に失敗しました:', await response.text());
+                }
+              } else {
+                console.warn('⚠️ API_KEYが設定されていないため、WebSub購読をスキップしました');
+              }
+            } catch (websubError) {
+              console.warn('⚠️ WebSub購読エラー:', websubError);
+              // エラーでも続行（チャンネルは追加済み）
+            }
+          }
         } else {
           setError('このチャンネルは既に追加されています。');
         }

@@ -30,6 +30,8 @@ export class ApiService {
           handle: row.handle,
           lastChecked: row.last_checked || new Date().toISOString(),
           thumbnailUrl: row.thumbnail_url || '',
+          channelId: row.channel_id || undefined,
+          uploadsPlaylistId: row.uploads_playlist_id || undefined,
         }));
       } catch (error) {
         console.warn('Supabase接続エラー:', error);
@@ -63,6 +65,8 @@ export class ApiService {
           handle: channel.handle,
           thumbnail_url: channel.thumbnailUrl,
           last_checked: channel.lastChecked || new Date().toISOString(),
+          channel_id: channel.channelId || null,
+          uploads_playlist_id: channel.uploadsPlaylistId || null,
         })
         .select()
         .single();
@@ -80,6 +84,8 @@ export class ApiService {
         handle: data.handle,
         lastChecked: data.last_checked || new Date().toISOString(),
         thumbnailUrl: data.thumbnail_url || '',
+        channelId: data.channel_id || undefined,
+        uploadsPlaylistId: data.uploads_playlist_id || undefined,
       };
     }
     

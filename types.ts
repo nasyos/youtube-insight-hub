@@ -35,6 +35,8 @@ export interface TrackedChannel {
   handle: string;
   lastChecked: string;
   thumbnailUrl: string;
+  channelId?: string; // YouTubeチャンネルID（UCxxxxx）
+  uploadsPlaylistId?: string; // アップロードプレイリストID
 }
 
 export interface GoogleConfig {

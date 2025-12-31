@@ -63,57 +63,62 @@ export class YouTubeService {
 
   /**
    * チャンネルハンドル（@example）からチャンネルIDを取得
+   * 複数の方法を試行: forHandle → search.list
    */
   async getChannelId(handle: string): Promise<string | null> {
     this.ensureApiKey();
     
     try {
-      // @を削除
-      const username = handle.replace('@', '');
+      const handleWithoutAt = handle.replace('@', '');
       
-      const url = new URL(`${this.baseUrl}/channels`);
-      url.searchParams.set('part', 'id,snippet');
-      url.searchParams.set('forUsername', username);
-      url.searchParams.set('key', this.apiKey);
+      // 方法1: forHandleを使用（推奨）
+      try {
+        const url = new URL(`${this.baseUrl}/channels`);
+        url.searchParams.set('part', 'id');
+        url.searchParams.set('forHandle', handleWithoutAt);
+        url.searchParams.set('key', this.apiKey);
 
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error(`YouTube API error: ${response.status}`);
+        const response = await fetch(url.toString());
+        if (response.ok) {
+          const data = await response.json();
+          if (data.items && data.items.length > 0) {
+            return data.items[0].id;
+          }
+        }
+      } catch (error) {
+        console.warn('forHandle method failed, trying search.list:', error);
       }
 
-      const data = await response.json();
-      
-      if (data.items && data.items.length > 0) {
-        return data.items[0].id;
+      // 方法2: search.listを使用（フォールバック）
+      try {
+        const searchUrl = new URL(`${this.baseUrl}/search`);
+        searchUrl.searchParams.set('part', 'snippet');
+        searchUrl.searchParams.set('q', handle); // @を含むハンドルで検索
+        searchUrl.searchParams.set('type', 'channel');
+        searchUrl.searchParams.set('maxResults', '1');
+        searchUrl.searchParams.set('key', this.apiKey);
+
+        const searchResponse = await fetch(searchUrl.toString());
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          if (searchData.items && searchData.items.length > 0) {
+            // ハンドル名が一致するか確認
+            const item = searchData.items[0];
+            const customUrl = item.snippet?.customUrl;
+            if (customUrl && customUrl.toLowerCase() === handle.toLowerCase()) {
+              return item.snippet.channelId;
+            }
+            // ハンドルが一致しない場合でも、最初の結果を返す（フォールバック）
+            return item.snippet.channelId;
+          }
+        }
+      } catch (error) {
+        console.warn('search.list method failed:', error);
       }
 
-      // forUsernameで見つからない場合、customUrlで検索
-      return await this.getChannelIdByCustomUrl(handle);
+      return null;
     } catch (error) {
       console.error('getChannelId error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * カスタムURL（@example）からチャンネルIDを取得
-   */
-  private async getChannelIdByCustomUrl(handle: string): Promise<string | null> {
-    try {
-      const url = new URL(`${this.baseUrl}/channels`);
-      url.searchParams.set('part', 'id');
-      url.searchParams.set('forHandle', handle.replace('@', ''));
-      url.searchParams.set('key', this.apiKey);
-
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = await response.json();
-      return data.items && data.items.length > 0 ? data.items[0].id : null;
-    } catch (error) {
-      console.error('getChannelIdByCustomUrl error:', error);
       return null;
     }
   }

@@ -136,7 +136,7 @@ export class GoogleApiService {
     return folder.id;
   }
 
-  async createSummaryDoc(summary: VideoSummary | VideoSummaryWithContent): Promise<string> {
+  async createSummaryDoc(summary: VideoSummary | VideoSummaryWithContent): Promise<{ docUrl: string; docId: string }> {
     // トークンを再読み込み
     this.refreshToken();
     
@@ -194,7 +194,10 @@ export class GoogleApiService {
       // ドキュメントは作成されているので、URLは返す
     }
 
-    return `https://docs.google.com/document/d/${documentId}/edit`;
+    return {
+      docUrl: `https://docs.google.com/document/d/${documentId}/edit`,
+      docId: documentId
+    };
   }
 
   private formatSummaryContent(summary: VideoSummary | VideoSummaryWithContent): string {
