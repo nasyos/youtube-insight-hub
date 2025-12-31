@@ -107,9 +107,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'docUrl is required' });
       }
 
-      // VIDEO_IDを抽出
-      const videoId = extractVideoId(summary.url);
-      console.log('🔍 API saveSummary: URL =', summary.url, ', 抽出されたVIDEO_ID =', videoId);
+      // VIDEO_IDを取得（summary.videoIdが提供されている場合はそれを使用、なければURLから抽出）
+      let videoId: string | null = null;
+      
+      if (summary.videoId) {
+        // YouTube Data APIから直接取得したVIDEO_IDを使用
+        videoId = summary.videoId.trim();
+        console.log('🔍 API saveSummary: VIDEO_IDを直接使用 =', videoId);
+      } else {
+        // フォールバック: URLから抽出
+        console.log('🔍 API saveSummary: URLからVIDEO_IDを抽出: URL =', summary.url);
+        videoId = extractVideoId(summary.url);
+        console.log('🔍 API saveSummary: 抽出されたVIDEO_ID =', videoId);
+      }
 
       // 重複チェック（VIDEO_IDでチェック、なければvideo_urlでチェック）
       let existingData = null;

@@ -192,10 +192,19 @@ export class ApiService {
   async saveSummary(summary: VideoSummary): Promise<VideoSummary> {
     if (USE_DIRECT_SUPABASE) {
       // 直接Supabaseに接続（ローカル開発用）
-      // VIDEO_IDを抽出
-      console.log('🔍 saveSummary: URL =', summary.url);
-      const videoId = extractVideoId(summary.url);
-      console.log('🔍 saveSummary: 抽出されたVIDEO_ID =', videoId);
+      // VIDEO_IDを取得（summary.videoIdが提供されている場合はそれを使用、なければURLから抽出）
+      let videoId: string | null = null;
+      
+      if (summary.videoId) {
+        // YouTube Data APIから直接取得したVIDEO_IDを使用
+        videoId = summary.videoId.trim();
+        console.log('🔍 saveSummary: VIDEO_IDを直接使用 =', videoId);
+      } else {
+        // フォールバック: URLから抽出
+        console.log('🔍 saveSummary: URLからVIDEO_IDを抽出: URL =', summary.url);
+        videoId = extractVideoId(summary.url);
+        console.log('🔍 saveSummary: 抽出されたVIDEO_ID =', videoId);
+      }
       
       // 重複チェック（VIDEO_IDでチェック、なければvideo_urlでチェック）
       let existingData = null;

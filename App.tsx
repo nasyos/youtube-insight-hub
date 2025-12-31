@@ -227,7 +227,10 @@ const App: React.FC = () => {
 
           // 3. 各動画について処理
           for (const video of videoDetails) {
-            const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
+            // VIDEO_IDからスペースを除去してURLを構築
+            const cleanVideoId = video.id.trim();
+            const videoUrl = `https://www.youtube.com/watch?v=${cleanVideoId}`;
+            console.log(`🔍 動画URLを構築: VIDEO_ID = "${video.id}" (trim後: "${cleanVideoId}")`);
             
             // 重複チェック（VIDEO_IDでチェック）
             const exists = await api.current.checkVideoExists(videoUrl, {
@@ -269,9 +272,10 @@ const App: React.FC = () => {
                 thumbnailUrl: video.thumbnailUrl,
                 channelId: channel.id,
                 channelTitle: channel.name,
-                url: videoUrl, // 正しいVIDEO_IDを含むURL
+                url: videoUrl,
                 docUrl: docUrl,
                 docId: docId,
+                videoId: cleanVideoId, // YouTube Data APIから直接取得したVIDEO_IDを設定
                 summary: summary,
                 keyPoints: keyPoints,
               };

@@ -10,6 +10,7 @@ export interface VideoSummary {
   url: string;
   docUrl: string; // Google Doc URL（必須）
   docId?: string; // Google Doc ID（オプション）
+  videoId?: string; // YouTube VIDEO_ID（オプション、YouTube Data APIから直接取得した場合は設定）
   summary?: string; // 要約内容（オプショナル）
   keyPoints?: string[]; // 重要なポイント（オプショナル）
   createdAt?: string;
