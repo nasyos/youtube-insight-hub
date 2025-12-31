@@ -201,65 +201,109 @@ const App: React.FC = () => {
     let newCount = 0; // 新規に保存された動画の数
     try {
       for (const channel of channels) {
-        const foundSummaries: VideoSummaryWithContent[] = await gemini.current.scanChannel(channel);
-        for (const s of foundSummaries) {
-          // デバッグ: Gemini APIが返したURLを確認
-          console.log('📹 Gemini APIが返した動画:', {
-            title: s.title,
-            url: s.url,
-          });
+        // チャンネルIDとアップロードプレイリストIDが必要
+        if (!channel.channelId || !channel.uploadsPlaylistId) {
+          console.warn(`⚠️ チャンネル "${channel.name}" にchannelIdまたはuploadsPlaylistIdが設定されていません。スキップします。`);
+          continue;
+        }
+
+        try {
+          // 1. YouTube Data API v3で最新動画を取得
+          console.log(`🔍 チャンネル "${channel.name}" の最新動画を取得中...`);
+          const videoIds = await youtube.current.getPlaylistVideos(channel.uploadsPlaylistId, 3);
           
-          // 重複チェック（既に取得済みの動画はスキップ）
-          // published_atとtitleも渡して、より確実な重複チェックを行う
-          const exists = await api.current.checkVideoExists(s.url, {
-            publishedAt: s.publishedAt,
-            title: s.title,
-            channelId: s.channelId
-          });
-          if (exists) {
-            console.log(`⏭️ スキップ: 既に取得済みの動画 "${s.title}" (URL: ${s.url})`);
+          if (videoIds.length === 0) {
+            console.log(`⏭️ チャンネル "${channel.name}" に新着動画がありません。`);
             continue;
           }
 
-          try {
-            // 1. まずGoogleドキュメントを作成（要約内容を保存）
-            const { docUrl, docId } = await googleApi.current.createSummaryDoc(s);
-            
-            // 2. メタデータと要約内容をデータベースに保存
-            const summaryMetadata: VideoSummary = {
-              id: s.id,
-              title: s.title,
-              publishedAt: s.publishedAt,
-              thumbnailUrl: s.thumbnailUrl,
-              channelId: s.channelId,
-              channelTitle: s.channelTitle,
-              url: s.url,
-              docUrl: docUrl,
-              docId: docId, // Google Docs IDを保存
-              summary: s.summary, // 要約内容を保存
-              keyPoints: s.keyPoints, // 重要なポイントを保存
-            };
-            
-            const savedSummary = await api.current.saveSummary(summaryMetadata);
-            newCount++; // 新規保存数をカウント
-            
-            // 3. Google Chatに通知（自動送信がONの場合）
-            if (googleConfig.autoExport && googleConfig.chatWebhookUrl) {
-              await sendToGoogleChat(savedSummary, docUrl);
-            }
-            
-            // 4. ローカル状態を更新
-            setSummaries(prev => [savedSummary, ...prev].slice(0, 50));
-          } catch (err: any) {
-            console.error('要約の保存に失敗:', err);
-            setError(`要約の保存に失敗しました: ${err.message}`);
+          // 2. 動画の詳細情報を取得
+          const videoDetails = await youtube.current.getVideoDetails(videoIds);
+          
+          if (videoDetails.length === 0) {
+            console.log(`⏭️ チャンネル "${channel.name}" の動画詳細を取得できませんでした。`);
+            continue;
           }
+
+          // 3. 各動画について処理
+          for (const video of videoDetails) {
+            const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
+            
+            // 重複チェック（VIDEO_IDでチェック）
+            const exists = await api.current.checkVideoExists(videoUrl, {
+              publishedAt: video.publishedAt,
+              title: video.title,
+              channelId: channel.id
+            });
+            
+            if (exists) {
+              console.log(`⏭️ スキップ: 既に取得済みの動画 "${video.title}" (VIDEO_ID: ${video.id})`);
+              continue;
+            }
+
+            try {
+              // 4. Gemini APIで要約を生成
+              console.log(`📝 動画 "${video.title}" の要約を生成中...`);
+              const { summary, keyPoints } = await gemini.current.summarizeVideo(videoUrl, video.title);
+              
+              // 5. Googleドキュメントを作成
+              const summaryWithContent: VideoSummaryWithContent = {
+                id: `${channel.id}-${Date.now()}-${video.id}`,
+                title: video.title,
+                publishedAt: video.publishedAt,
+                thumbnailUrl: video.thumbnailUrl,
+                summary: summary,
+                keyPoints: keyPoints,
+                channelId: channel.id,
+                channelTitle: channel.name,
+                url: videoUrl
+              };
+              
+              const { docUrl, docId } = await googleApi.current.createSummaryDoc(summaryWithContent);
+              
+              // 6. メタデータと要約内容をデータベースに保存
+              const summaryMetadata: VideoSummary = {
+                id: summaryWithContent.id,
+                title: video.title,
+                publishedAt: video.publishedAt,
+                thumbnailUrl: video.thumbnailUrl,
+                channelId: channel.id,
+                channelTitle: channel.name,
+                url: videoUrl, // 正しいVIDEO_IDを含むURL
+                docUrl: docUrl,
+                docId: docId,
+                summary: summary,
+                keyPoints: keyPoints,
+              };
+              
+              const savedSummary = await api.current.saveSummary(summaryMetadata);
+              newCount++; // 新規保存数をカウント
+              
+              console.log(`✅ 動画 "${video.title}" の要約を保存しました (VIDEO_ID: ${video.id})`);
+              
+              // 7. Google Chatに通知（自動送信がONの場合）
+              if (googleConfig.autoExport && googleConfig.chatWebhookUrl) {
+                await sendToGoogleChat(savedSummary, docUrl);
+              }
+              
+              // 8. ローカル状態を更新
+              setSummaries(prev => [savedSummary, ...prev].slice(0, 50));
+            } catch (err: any) {
+              console.error(`要約の生成または保存に失敗 (VIDEO_ID: ${video.id}):`, err);
+              setError(`動画 "${video.title}" の要約生成に失敗しました: ${err.message}`);
+            }
+          }
+        } catch (err: any) {
+          console.error(`チャンネル "${channel.name}" のスキャンに失敗:`, err);
+          setError(`チャンネル "${channel.name}" のスキャンに失敗しました: ${err.message}`);
         }
       }
       
       // 新着データがない場合のメッセージ
       if (newCount === 0) {
         setError("新着の投稿がありません。");
+      } else {
+        console.log(`✅ ${newCount}件の新着動画を処理しました。`);
       }
     } catch (err: any) {
       console.error('スキャンエラー:', err);
