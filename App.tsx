@@ -275,78 +275,85 @@ const App: React.FC = () => {
     setIsAdding(true);
     setError(null);
     try {
-      // チャンネル情報の取得（Gemini APIを使用 - 5-30秒かかる場合があります）
-      console.log('🔍 チャンネル情報を取得中...（5-30秒かかる場合があります）');
-      const channel = await gemini.current.findChannel(searchQuery);
-      if (channel) {
-        if (!channels.some(c => c.handle === channel.handle)) {
-          // YouTube Data API v3でチャンネルIDとアップロードプレイリストIDを取得
-          try {
-            console.log('🔍 YouTube Data API v3でチャンネルIDを取得中...');
-            const channelId = await youtube.current.getChannelId(channel.handle);
-            if (channelId) {
-              console.log('✅ チャンネルIDを取得しました:', channelId);
-              channel.channelId = channelId;
-              
-              console.log('🔍 アップロードプレイリストIDを取得中...');
-              const uploadsPlaylistId = await youtube.current.getChannelUploadsPlaylist(channelId);
-              if (uploadsPlaylistId) {
-                console.log('✅ アップロードプレイリストIDを取得しました:', uploadsPlaylistId);
-                channel.uploadsPlaylistId = uploadsPlaylistId;
-              } else {
-                console.warn('⚠️ アップロードプレイリストIDを取得できませんでした');
-              }
+      // Serverless Function経由でチャンネル情報を取得（YouTube Data API v3を使用）
+      console.log('🔍 チャンネル情報を取得中...（Serverless Function経由）');
+      const response = await fetch('/api/youtube/channel-info', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ handle: searchQuery }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'チャンネル情報の取得に失敗しました');
+      }
+
+      const data = await response.json();
+      const { channelId, channelInfo, uploadsPlaylistId } = data;
+
+      if (!channelId || !channelInfo) {
+        throw new Error('チャンネル情報が取得できませんでした');
+      }
+
+      // チャンネル情報を構築
+      const channel: TrackedChannel = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: channelInfo.title,
+        handle: channelInfo.handle,
+        channelId: channelId,
+        uploadsPlaylistId: uploadsPlaylistId || undefined,
+        lastChecked: new Date().toISOString(),
+        thumbnailUrl: channelInfo.thumbnailUrl || `https://picsum.photos/seed/${channelInfo.title}/150/150`
+      };
+
+      // 重複チェック
+      if (channels.some(c => c.handle === channel.handle || c.channelId === channel.channelId)) {
+        setError('このチャンネルは既に追加されています。');
+        return;
+      }
+
+      // データベースに保存
+      const savedChannel = await api.current.addChannel(channel);
+      setChannels(prev => [...prev, savedChannel]);
+      setSearchQuery('');
+
+      console.log('✅ チャンネルを追加しました:', {
+        name: savedChannel.name,
+        handle: savedChannel.handle,
+        channelId: savedChannel.channelId,
+        uploadsPlaylistId: savedChannel.uploadsPlaylistId
+      });
+
+      // WebSub購読を自動実行（channel_idが取得できた場合）
+      if (savedChannel.channelId) {
+        try {
+          const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
+          if (apiKey) {
+            const websubResponse = await fetch('/api/youtube/websub/subscribe', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey
+              },
+              body: JSON.stringify({ channelId: savedChannel.channelId })
+            });
+            if (websubResponse.ok) {
+              console.log('✅ WebSub購読を開始しました:', savedChannel.channelId);
             } else {
-              console.warn('⚠️ チャンネルIDを取得できませんでした。YouTube APIキーが設定されているか、ハンドルが正しいか確認してください。');
-              setError('チャンネルIDを取得できませんでした。YouTube APIキー（VITE_YOUTUBE_API_KEY）が設定されているか確認してください。');
+              console.warn('⚠️ WebSub購読に失敗しました:', await websubResponse.text());
             }
-          } catch (youtubeError: any) {
-            console.error('❌ YouTube Data API v3でのチャンネルID取得に失敗しました:', youtubeError);
-            setError(youtubeError.message || 'YouTube Data API v3でのチャンネルID取得に失敗しました。');
-            // エラーでも続行（channel_idなしで保存）するか、エラーで停止するかは要検討
-            // 現状はエラーメッセージを表示して続行
+          } else {
+            console.warn('⚠️ API_KEYが設定されていないため、WebSub購読をスキップしました');
           }
-
-          // データベースに保存
-          const savedChannel = await api.current.addChannel(channel);
-          setChannels(prev => [...prev, savedChannel]);
-          setSearchQuery('');
-
-          // WebSub購読を自動実行（channel_idが取得できた場合）
-          if (savedChannel.channelId) {
-            try {
-              const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
-              if (apiKey) {
-                const response = await fetch('/api/youtube/websub/subscribe', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': apiKey
-                  },
-                  body: JSON.stringify({ channelId: savedChannel.channelId })
-                });
-                if (response.ok) {
-                  console.log('✅ WebSub購読を開始しました:', savedChannel.channelId);
-                } else {
-                  console.warn('⚠️ WebSub購読に失敗しました:', await response.text());
-                }
-              } else {
-                console.warn('⚠️ API_KEYが設定されていないため、WebSub購読をスキップしました');
-              }
-            } catch (websubError) {
-              console.warn('⚠️ WebSub購読エラー:', websubError);
-              // エラーでも続行（チャンネルは追加済み）
-            }
-          }
-        } else {
-          setError('このチャンネルは既に追加されています。');
+        } catch (websubError) {
+          console.warn('⚠️ WebSub購読エラー:', websubError);
+          // エラーでも続行（チャンネルは追加済み）
         }
-      } else {
-        setError('チャンネルが見つかりませんでした。');
       }
     } catch (err: any) {
       console.error('チャンネル追加エラー:', err);
-      // エラーメッセージをそのまま表示（GeminiServiceから詳細なメッセージが返される）
       setError(err.message || 'チャンネルの追加に失敗しました。');
     } finally {
       setIsAdding(false);
