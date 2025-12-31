@@ -63,10 +63,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.warn('⚠️ channel-info: forHandle APIエラー', response.status, errorData);
+        
+        // 403エラーの場合、詳細なエラーメッセージを返す
+        if (response.status === 403) {
+          const errorMessage = errorData?.error?.message || 'YouTube Data API v3へのアクセスが拒否されました';
+          return res.status(403).json({ 
+            error: 'YouTube Data API v3が有効化されていません',
+            details: errorMessage,
+            helpUrl: errorData?.error?.message?.includes('Enable it by visiting') 
+              ? 'https://console.developers.google.com/apis/api/youtube.googleapis.com/overview'
+              : undefined
+          });
+        }
       }
     } catch (error: any) {
-      console.warn('⚠️ channel-info: forHandle method failed:', error.message);
-    }
+        console.warn('⚠️ channel-info: forHandle method failed:', error.message);
+      }
 
     // 方法2: search.listをフォールバックとして試す
     if (!channelId) {
@@ -120,6 +132,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           const errorData = await searchResponse.json().catch(() => ({}));
           console.warn('⚠️ channel-info: search.list APIエラー', searchResponse.status, errorData);
+          
+          // 403エラーの場合、詳細なエラーメッセージを返す
+          if (searchResponse.status === 403) {
+            const errorMessage = errorData?.error?.message || 'YouTube Data API v3へのアクセスが拒否されました';
+            return res.status(403).json({ 
+              error: 'YouTube Data API v3が有効化されていません',
+              details: errorMessage,
+              helpUrl: errorData?.error?.message?.includes('Enable it by visiting') 
+                ? 'https://console.developers.google.com/apis/api/youtube.googleapis.com/overview'
+                : undefined
+            });
+          }
         }
       } catch (error: any) {
         console.warn('⚠️ channel-info: search.list method failed:', error.message);

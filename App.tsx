@@ -287,6 +287,18 @@ const App: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        
+        // 403エラーの場合、詳細なメッセージを表示
+        if (response.status === 403) {
+          const errorMessage = errorData.details || errorData.error || 'YouTube Data API v3が有効化されていません';
+          const helpUrl = errorData.helpUrl || 'https://console.developers.google.com/apis/api/youtube.googleapis.com/overview';
+          throw new Error(
+            `${errorMessage}\n\n` +
+            `解決方法: Google Cloud ConsoleでYouTube Data API v3を有効化してください。\n` +
+            `${helpUrl}`
+          );
+        }
+        
         throw new Error(errorData.error || 'チャンネル情報の取得に失敗しました');
       }
 
