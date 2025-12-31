@@ -41,6 +41,7 @@ const App: React.FC = () => {
           api.current.getChannels(),
           api.current.getSummaries()
         ]);
+        console.log(`📊 初期データ読み込み: チャンネル ${channelsData.length}件, 要約 ${summariesData.length}件`);
         setChannels(channelsData);
         setSummaries(summariesData);
       } catch (error: any) {

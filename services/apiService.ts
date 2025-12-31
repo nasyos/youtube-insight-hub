@@ -144,6 +144,8 @@ export class ApiService {
           return []; // エラー時は空配列を返す
         }
         
+        console.log(`📊 getSummaries (直接Supabase): ${data?.length || 0}件の要約を取得しました`);
+        
         return (data || []).map((row) => ({
           id: row.id,
           title: row.title,
@@ -182,7 +184,9 @@ export class ApiService {
       if (!response.ok) {
         throw new Error('要約一覧の取得に失敗しました');
       }
-      return response.json();
+      const summaries = await response.json();
+      console.log(`📊 getSummaries (API経由): ${summaries.length}件の要約を取得しました`);
+      return summaries;
     } catch (error) {
       console.warn('API接続エラー:', error);
       return []; // エラー時は空配列を返す
