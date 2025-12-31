@@ -43,16 +43,29 @@ export class GeminiService {
         console.warn('Gemini APIキーの初期化に失敗しました:', error);
       }
     } else {
-      console.warn('⚠️ Gemini APIキーが設定されていません。スキャン機能は使用できません。');
-      console.warn('   .env.local ファイルに以下を設定してください:');
-      console.warn('   VITE_GEMINI_API_KEY=your_gemini_api_key');
-      console.warn('   設定後、開発サーバーを再起動してください（Ctrl+C で停止 → npm run dev で再起動）');
+      const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+      if (isVercel) {
+        console.warn('⚠️ Gemini APIキーが設定されていません。スキャン機能は使用できません。');
+        console.warn('   Vercelダッシュボードの「Settings」→「Environment Variables」で以下を設定してください:');
+        console.warn('   VITE_GEMINI_API_KEY=your_gemini_api_key');
+        console.warn('   設定後、再デプロイしてください。');
+      } else {
+        console.warn('⚠️ Gemini APIキーが設定されていません。スキャン機能は使用できません。');
+        console.warn('   .env.local ファイルに以下を設定してください:');
+        console.warn('   VITE_GEMINI_API_KEY=your_gemini_api_key');
+        console.warn('   設定後、開発サーバーを再起動してください（Ctrl+C で停止 → npm run dev で再起動）');
+      }
     }
   }
 
   private ensureApiKey(): void {
     if (!this.ai) {
-      throw new Error('Gemini APIキーが設定されていません。.env.local ファイルに VITE_GEMINI_API_KEY を設定してください。');
+      const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+      if (isVercel) {
+        throw new Error('Gemini APIキーが設定されていません。Vercelダッシュボードの「Settings」→「Environment Variables」で VITE_GEMINI_API_KEY を設定し、再デプロイしてください。');
+      } else {
+        throw new Error('Gemini APIキーが設定されていません。.env.local ファイルに VITE_GEMINI_API_KEY を設定してください。');
+      }
     }
   }
 

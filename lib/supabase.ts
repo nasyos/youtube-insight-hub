@@ -40,11 +40,19 @@ export const supabase = supabaseUrl && supabaseAnonKey
   : createClient('https://placeholder.supabase.co', 'placeholder-key');
 
 if (!supabaseUrl || !supabaseAnonKey) {
+  const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   console.warn('⚠️ Supabase環境変数が設定されていません。データベース機能は使用できません。');
-  console.warn('   .env.local ファイルに以下を設定してください:');
-  console.warn('   VITE_SUPABASE_URL=your_supabase_url');
-  console.warn('   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
-  console.warn('   設定後、開発サーバーを再起動してください（Ctrl+C で停止 → npm run dev で再起動）');
+  if (isVercel) {
+    console.warn('   Vercelダッシュボードの「Settings」→「Environment Variables」で以下を設定してください:');
+    console.warn('   VITE_SUPABASE_URL=your_supabase_url');
+    console.warn('   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
+    console.warn('   設定後、再デプロイしてください。');
+  } else {
+    console.warn('   .env.local ファイルに以下を設定してください:');
+    console.warn('   VITE_SUPABASE_URL=your_supabase_url');
+    console.warn('   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
+    console.warn('   設定後、開発サーバーを再起動してください（Ctrl+C で停止 → npm run dev で再起動）');
+  }
 } else {
   console.log('✅ Supabase接続設定が確認されました');
 }
