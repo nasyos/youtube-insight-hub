@@ -138,7 +138,7 @@ export class VideoJobService {
 
       if (this.googleApiService) {
         try {
-          docUrl = await this.googleApiService.createSummaryDoc({
+          const docResult = await this.googleApiService.createSummaryDoc({
             id: job.video_id,
             title: video.title,
             publishedAt: video.published_at,
@@ -149,6 +149,8 @@ export class VideoJobService {
             summary,
             keyPoints
           });
+          docUrl = docResult.docUrl;
+          docId = docResult.docId;
         } catch (docError) {
           console.error('Google Docs creation error:', docError);
           // エラーでも続行
